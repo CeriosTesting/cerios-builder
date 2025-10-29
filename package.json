@@ -1,0 +1,59 @@
+{
+	"name": "@cerios/cerios-builder",
+	"version": "1.0.0",
+	"author": "Ronald Veth - Cerios",
+	"description": "A TypeScript project with Jest testing framework",
+	"license": "MIT",
+	"keywords": ["typescript", "builder-pattern", "object-construction", "cerios"],
+	"main": "./dist/index.js",
+	"module": "./dist/index.mjs",
+	"types": "./dist/index.d.ts",
+	"files": ["dist"],
+	"type": "commonjs",
+	"exports": {
+		"./package.json": "./package.json",
+		".": {
+			"import": "./dist/index.mjs",
+			"default": "./dist/index.js"
+		}
+	},
+	"bugs": {
+		"url": "https://github.com/CeriosTesting/cerios-builder/issues"
+	},
+	"homepage": "https://github.com/CeriosTesting/cerios-builder#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/CeriosTesting/cerios-builder.git"
+	},
+	"scripts": {
+		"biome:migrate": "biome migrate --write",
+		"build": "tsup",
+		"changeset": "npx changeset",
+		"changeset:publish": "tsup && changeset publish",
+		"changeset:version": "changeset version && npm i",
+		"check": "biome check --write",
+		"check-exports": "attw --pack .",
+		"compile": "tsc --noEmit",
+		"dev": "tsc --watch",
+		"lint": "biome lint",
+		"prepare": "husky && husky install",
+		"test": "jest",
+		"test:coverage": "jest --coverage",
+		"test:watch": "jest --watch",
+		"update-all-packages": "npx npm-check-updates -u && npm i"
+	},
+	"devDependencies": {
+		"@arethetypeswrong/cli": "^0.18.2",
+		"@biomejs/biome": "2.3.2",
+		"@changesets/cli": "^2.29.7",
+		"@types/jest": "^29.5.5",
+		"@types/node": "^20.8.0",
+		"husky": "^8.0.0",
+		"jest": "^29.7.0",
+		"lint-staged": "^16.2.6",
+		"npm-check-updates": "^19.1.2",
+		"ts-jest": "^29.1.1",
+		"tsup": "^8.5.0",
+		"typescript": "^5.2.2"
+	}
+}
