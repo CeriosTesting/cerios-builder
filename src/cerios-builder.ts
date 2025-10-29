@@ -22,7 +22,7 @@ export abstract class CeriosBuilder<T extends object> {
 	 * This method tracks which properties have been set via the type system.
 	 */
 	protected setProperty<K extends keyof T>(key: K, value: T[K]): this & CeriosBrand<Pick<T, K>> {
-		const BuilderClass = this.constructor as new (data: any) => any;
+		    const BuilderClass = this.constructor as new (data: any) => any;
 		return new BuilderClass({
 			...this._actual,
 			[key]: value,
