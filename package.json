@@ -2,7 +2,7 @@
 	"name": "@cerios/cerios-builder",
 	"version": "1.0.0",
 	"author": "Ronald Veth - Cerios",
-	"description": "A TypeScript project with Jest testing framework",
+	"description": "A TypeScript builder pattern library providing compile-time type safety for object construction with method chaining and required field validation",
 	"license": "MIT",
 	"keywords": ["typescript", "builder-pattern", "object-construction", "cerios"],
 	"main": "./dist/index.js",
