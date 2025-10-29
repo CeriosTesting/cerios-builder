@@ -36,6 +36,7 @@
 		"compile": "tsc --noEmit",
 		"dev": "tsc --watch",
 		"lint": "biome lint",
+		"prepare": "husky install",
 		"test": "jest",
 		"test:coverage": "jest --coverage",
 		"test:watch": "jest --watch",
