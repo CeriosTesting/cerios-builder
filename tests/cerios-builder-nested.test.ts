@@ -20,10 +20,7 @@ class AddressBuilder extends CeriosBuilder<Address> {
 	}
 
 	static createWithDefaults() {
-		return this.create().setProperties({
-			city: "Othertown",
-			country: "United States",
-		});
+		return this.create().city("Othertown").country("United States");
 	}
 
 	street(value: string) {

@@ -26,6 +26,14 @@ class PersonBuilder extends CeriosBuilder<Person> {
 	withAdultAge() {
 		return this.setProperty("age", 18);
 	}
+
+	setNameAndAge(name: string, age: number) {
+		return this.setProperties({ name, age });
+	}
+
+	setAll(name: string, age: number, email: string) {
+		return this.setProperties({ name, age, email });
+	}
 }
 
 describe("Cerios Builder", () => {
@@ -84,6 +92,26 @@ describe("Cerios Builder", () => {
 		expect(person).toEqual({
 			name: "Charlie",
 			age: 18,
+		});
+	});
+
+	test("should build person using setNameAndAge(setProperties)", () => {
+		const person = PersonBuilder.create().setNameAndAge("Diana", 28).email("diana@example.com").build();
+
+		expect(person).toEqual({
+			name: "Diana",
+			age: 28,
+			email: "diana@example.com",
+		});
+	});
+
+	test("should build person using setAll(setProperties)", () => {
+		const person = PersonBuilder.create().setAll("Eve", 35, "eve@example.com").build();
+
+		expect(person).toEqual({
+			name: "Eve",
+			age: 35,
+			email: "eve@example.com",
 		});
 	});
 });
