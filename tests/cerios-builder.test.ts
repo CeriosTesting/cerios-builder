@@ -7,10 +7,6 @@ type Person = {
 };
 
 class PersonBuilder extends CeriosBuilder<Person> {
-	private constructor(data: Partial<Person>) {
-		super(data);
-	}
-
 	static create() {
 		return new PersonBuilder({});
 	}

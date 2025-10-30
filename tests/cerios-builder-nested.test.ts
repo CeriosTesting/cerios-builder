@@ -15,12 +15,15 @@ type Customer = {
 };
 
 class AddressBuilder extends CeriosBuilder<Address> {
-	private constructor(data: Partial<Address>) {
-		super(data);
-	}
-
 	static create() {
 		return new AddressBuilder({});
+	}
+
+	static createWithDefaults() {
+		return this.create().setProperties({
+			city: "Othertown",
+			country: "United States",
+		});
 	}
 
 	street(value: string) {
@@ -46,10 +49,6 @@ class AddressBuilder extends CeriosBuilder<Address> {
 }
 
 class CustomerBuilder extends CeriosBuilder<Customer> {
-	private constructor(data: Partial<Customer>) {
-		super(data);
-	}
-
 	static create() {
 		return new CustomerBuilder({});
 	}
@@ -75,6 +74,15 @@ class CustomerBuilder extends CeriosBuilder<Customer> {
 		const address = builderFn(AddressBuilder.create()).build();
 		return this.setProperty("address", address);
 	}
+
+	withAddressDefaults(
+		builderFn: (
+			builder: AddressBuilder & CeriosBrand<Pick<Address, "city" | "country">>
+		) => AddressBuilder & CeriosBrand<Address>
+	) {
+		const address = builderFn(AddressBuilder.createWithDefaults()).build();
+		return this.setProperty("address", address);
+	}
 }
 
 describe("Cerios Builder Nested", () => {
@@ -96,6 +104,24 @@ describe("Cerios Builder Nested", () => {
 				zipCode: "12345",
 			},
 			phoneNumber: "555-1234",
+		});
+	});
+
+	test("should build customer with default address", () => {
+		const customer = CustomerBuilder.create()
+			.id("456")
+			.name("Jane Smith")
+			.withAddressDefaults(address => address.street("456 Elm St"))
+			.build();
+
+		expect(customer).toEqual({
+			id: "456",
+			name: "Jane Smith",
+			address: {
+				street: "456 Elm St",
+				city: "Othertown",
+				country: "United States",
+			},
 		});
 	});
 });

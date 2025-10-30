@@ -10,6 +10,7 @@ A powerful TypeScript builder pattern library that provides **compile-time type 
 - **Zero Runtime Overhead**: All type checking happens at compile time
 - **Extensible**: Easy to create custom builder methods
 - **TypeScript First**: Built with TypeScript, for TypeScript
+- **Array Property Helpers**: Easily add values to array properties with type safety
 
 ## 📦 Installation
 
@@ -35,14 +36,11 @@ type User = {
     name: string;
     email: string;
     age?: number; // Optional property
+    roles?: string[]; // Optional array property
 };
 
 // Create your builder class
 class UserBuilder extends CeriosBuilder<User> {
-    private constructor(data: Partial<User>) {
-        super(data);
-    }
-
     static create() {
         return new UserBuilder({});
     }
@@ -61,6 +59,11 @@ class UserBuilder extends CeriosBuilder<User> {
 
     age(value: number) {
         return this.setProperty('age', value);
+    }
+
+    // New: Add to array property
+    addRole(role: string) {
+        return this.addToArrayProperty('roles', role);
     }
 
     // Custom methods for common patterns
@@ -83,14 +86,16 @@ const user = UserBuilder.create()
     .name("John Doe")
     .email("john@example.com")
     .age(30)
+    .addRole("admin") // Add to array property
+    .addRole("editor")
     .build();
 
-// ✅ Optional fields can be omitted
+// ✅ Optional fields and arrays can be omitted
 const basicUser = UserBuilder.create()
     .id("456")
     .name("Jane Doe")
     .email("jane@example.com")
-    .build(); // age is optional, so this works
+    .build(); // age and roles are optional
 
 // ❌ This won't compile - missing required 'email' field
 const incompleteUser = UserBuilder.create()
@@ -106,11 +111,12 @@ const adminUser = UserBuilder.create()
     .withRandomId()
     .name("Admin User")
     .withAdminEmail("admin")
+    .addRole("admin")
     .age(25)
     .build();
 
 console.log(adminUser);
-// Output: { id: "550e8400-...", name: "Admin User", email: "admin@admin.company.com", age: 25 }
+// Output: { id: "550e8400-...", name: "Admin User", email: "admin@admin.company.com", roles: ["admin"], age: 25 }
 ```
 
 ## 🎯 Advanced Examples
@@ -121,10 +127,6 @@ Perfect for creating test fixtures with sensible defaults:
 
 ```typescript
 class ProductBuilder extends CeriosBuilder<Product> {
-    private constructor(data: Partial<Product>) {
-        super(data);
-    }
-
     static create() {
         return new ProductBuilder({});
     }
@@ -139,6 +141,11 @@ class ProductBuilder extends CeriosBuilder<Product> {
 
     category(value: string) {
         return this.setProperty('category', value);
+    }
+
+    // Add to array property
+    addTag(tag: string) {
+        return this.addToArrayProperty('tags', tag);
     }
 
     // Custom methods for testing
@@ -160,6 +167,8 @@ class ProductBuilder extends CeriosBuilder<Product> {
 const testProduct = ProductBuilder.create()
     .withRandomName()
     .asElectronics()
+    .addTag("featured")
+    .addTag("sale")
     .build();
 ```
 
@@ -178,15 +187,19 @@ type Customer = {
     name: string;
     address: Address;
     phoneNumber?: string;
+    notes?: string[];
 };
 
 class AddressBuilder extends CeriosBuilder<Address> {
-    private constructor(data: Partial<Address>) {
-        super(data);
-    }
-
     static create() {
         return new AddressBuilder({});
+    }
+
+    static createWithDefaults() {
+        return this.create().setProperties({
+            city: "Othertown",
+            country: "United States",
+        });
     }
 
     street(value: string) {
@@ -212,10 +225,6 @@ class AddressBuilder extends CeriosBuilder<Address> {
 }
 
 class CustomerBuilder extends CeriosBuilder<Customer> {
-    private constructor(data: Partial<Customer>) {
-        super(data);
-    }
-
     static create() {
         return new CustomerBuilder({});
     }
@@ -236,14 +245,29 @@ class CustomerBuilder extends CeriosBuilder<Customer> {
         return this.setProperty('phoneNumber', value);
     }
 
+    // Add to array property
+    addNote(note: string) {
+        return this.addToArrayProperty('notes', note);
+    }
+
     // Build address inline
     withAddress(builderFn: (builder: AddressBuilder) => AddressBuilder & CeriosBrand<Address>) {
         const address = builderFn(AddressBuilder.create()).build();
         return this.setProperty('address', address);
     }
+
+    // Build address with defaults (pre-sets city and country)
+    withAddressDefaults(
+        builderFn: (
+            builder: AddressBuilder & CeriosBrand<Pick<Address, "city" | "country">>
+        ) => AddressBuilder & CeriosBrand<Address>
+    ) {
+        const address = builderFn(AddressBuilder.createWithDefaults()).build();
+        return this.setProperty('address', address);
+    }
 }
 
-// Usage
+// Usage with full address
 const customer = CustomerBuilder.create()
     .id('CUST-001')
     .name('Alice Johnson')
@@ -253,8 +277,21 @@ const customer = CustomerBuilder.create()
         .asUSAddress()
         .zipCode('10001')
     )
+    .addNote("VIP customer")
+    .addNote("Prefers email contact")
     .phoneNumber('+1-555-0123')
     .build();
+
+// Usage with defaults (only set street, city/country are pre-filled)
+const customerWithDefaults = CustomerBuilder.create()
+    .id('CUST-002')
+    .name('Bob Smith')
+    .withAddressDefaults(addr => addr.street('456 Elm St'))  // city and country are already set to defaults
+    .addNote("New customer")
+    .build();
+
+console.log(customerWithDefaults);
+// Output: { id: 'CUST-002', name: 'Bob Smith', address: { street: '456 Elm St', city: 'Othertown', country: 'United States' }, notes: ['New customer'] }
 ```
 
 ### Partial Building for Flexibility
@@ -265,6 +302,7 @@ Sometimes you need to build incomplete objects:
 // Build partial objects when not all data is available
 const partialUser = UserBuilder.create()
     .name("Unknown User")
+    .addRole("guest")
     .buildPartial(); // Returns Partial<User>
 
 // This is useful for:
@@ -284,6 +322,7 @@ describe('User Service', () => {
             .withRandomId()
             .name('Test User')
             .email('test@example.com')
+            .addRole('tester')
             .age(25)
             .build();
 
@@ -291,6 +330,7 @@ describe('User Service', () => {
 
         expect(result.success).toBe(true);
         expect(result.user.name).toBe('Test User');
+        expect(result.user.roles).toContain('tester');
     });
 
     test('should handle users without age', () => {
@@ -298,12 +338,14 @@ describe('User Service', () => {
             .withRandomId()
             .name('Ageless User')
             .email('ageless@example.com')
+            .addRole('guest')
             .build();
 
         const result = userService.createUser(userData);
 
         expect(result.success).toBe(true);
         expect(result.user.age).toBeUndefined();
+        expect(result.user.roles).toContain('guest');
     });
 });
 ```
@@ -317,6 +359,7 @@ const user = {
     id: "123",
     name: "John",
     // Oops! Forgot required email field
+    roles: ["admin"]
 };
 
 // ❌ Runtime error waiting to happen
@@ -330,6 +373,7 @@ const user = UserBuilder.create()
     .id("123")
     .name("John")
     .email("john@example.com") // Required - won't compile without it
+    .addRole("admin")
     .build();
 
 // ✅ Guaranteed to have all required fields
@@ -345,6 +389,7 @@ Base class for all builders.
 #### Methods
 
 - `setProperty<K>(key: K, value: T[K])` - Sets a property and returns a new builder instance
+- `addToArrayProperty<K, V>(key: K, value: V)` - Adds a value to an array property and returns a new builder instance
 - `build()` - Builds the final object (only available when all required properties are set)
 - `buildPartial()` - Builds a partial object with currently set properties
 
