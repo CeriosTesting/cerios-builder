@@ -1,5 +1,11 @@
 # @cerios/cerios-builder
 
+## 1.2.1
+
+### Patch Changes
+
+- 68e726e: Bugfix for couldn't set nested optional properties
+
 ## 1.2.0
 
 ### Minor Changes
