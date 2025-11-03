@@ -17,24 +17,22 @@ export type CeriosBrand<T> = { [__brand]: T };
 /**
  * Helper type to represent a path through an object structure
  */
-type PathImpl<T, Key extends keyof T> = Key extends string
-	? T[Key] extends Record<string, any>
-		?
-				| `${Key}.${PathImpl<T[Key], Exclude<keyof T[Key], keyof any[]>> & string}`
-				| `${Key}.${Exclude<keyof T[Key], keyof any[]> & string}`
-		: never
+type PathImpl<T, K extends keyof T = keyof T> = K extends string | number
+	? T[K] extends Record<string, any>
+		? T[K] extends Array<any>
+			? K
+			: K | `${K}.${PathImpl<T[K]> & string}`
+		: K
 	: never;
 
-type Path<T> = PathImpl<T, keyof T> | keyof T;
+export type Path<T> = PathImpl<T>;
 
-type PathValue<T, P extends Path<T>> = P extends `${infer Key}.${infer Rest}`
-	? Key extends keyof T
-		? Rest extends Path<T[Key]>
-			? PathValue<T[Key], Rest>
+type PathValue<T, P> = P extends keyof T
+	? T[P]
+	: P extends `${infer K}.${infer Rest}`
+		? K extends keyof T
+			? PathValue<T[K], Rest>
 			: never
-		: never
-	: P extends keyof T
-		? T[P]
 		: never;
 
 /**
@@ -42,6 +40,12 @@ type PathValue<T, P extends Path<T>> = P extends `${infer Key}.${infer Rest}`
  * Simply list the paths that are required.
  */
 export type RequiredFieldsTemplate<T> = ReadonlyArray<Path<T>>;
+
+/**
+ * Cache the root key extraction to avoid repeated computation
+ * @internal
+ */
+type RootKey<P extends string> = P extends `${infer K}.${string}` ? K : P;
 
 /**
  * Abstract base class for creating type-safe builders with automatic property setters and compile-time validation of required fields.
@@ -213,13 +217,13 @@ export abstract class CeriosBuilder<T extends object> {
 	 *
 	 * @example
 	 * ```typescript
-	 * builder.setNestedProperty('PtProject.Element.Fields.DbId', 'value')
+	 * builder.setNestedProperty('Order.Details.CustomerId', 'value')
 	 * ```
 	 */
 	protected setNestedProperty<P extends Path<T>>(
 		path: P,
 		value: PathValue<T, P>
-	): this & CeriosBrand<Pick<T, Extract<P extends `${infer K}.${string}` ? K : P, keyof T>>> {
+	): this & CeriosBrand<Pick<T, Extract<RootKey<P & string>, keyof T>>> {
 		const BuilderClass = this.constructor as new (data: any, requiredFields?: RequiredFieldsTemplate<T>) => any;
 		const keys = (path as string).split(".");
 		const newActual = this.deepClone(this._actual);
@@ -240,7 +244,7 @@ export abstract class CeriosBuilder<T extends object> {
 		return new BuilderClass(
 			newActual,
 			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>
-		) as this & CeriosBrand<Pick<T, Extract<P extends `${infer K}.${string}` ? K : P, keyof T>>>;
+		) as this & CeriosBrand<Pick<T, Extract<RootKey<P & string>, keyof T>>>;
 	}
 
 	/**
