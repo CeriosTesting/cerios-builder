@@ -306,47 +306,68 @@ export abstract class CeriosBuilder<T extends object> {
 	}
 
 	/**
-	 * Builds the final object. This method uses TypeScript's contextual typing to ensure
-	 * all required fields are set before allowing build() to be called.
+	 * Builds the final object with both compile-time and runtime validation.
+	 * This is the recommended and safest way to build objects.
 	 *
-	 * The type constraint checks that all required properties are present.
-	 *
-	 * @returns The fully built object of type T
-	 * @throws {TypeError} If called without all required fields set (compile-time error)
-	 */
-	build(this: this & CeriosBrand<T>): T {
-		return this._actual as T;
-	}
-
-	/**
-	 * Builds the final object with runtime validation using the requiredTemplate.
-	 * This method validates that all fields in the requiredTemplate array are present.
+	 * - Compile-time: TypeScript enforces all required properties are set
+	 * - Runtime: Validates all fields in the requiredTemplate
 	 *
 	 * @returns The fully built object of type T
 	 * @throws {Error} If any required field is missing at runtime
-	 *
-	 * @example
-	 * ```typescript
-	 * class MyBuilder extends CeriosBuilder<MyType> {
-	 *   static requiredTemplate: RequiredFieldsTemplate<MyType> = [
-	 *     'path.to.field1',
-	 *     'path.to.field2'
-	 *   ];
-	 * }
-	 *
-	 * const obj = new MyBuilder({})
-	 *   .setRequiredField1("value1")
-	 *   .setRequiredField2("value2")
-	 *   .buildSafe(); // Validates that both required fields are present
-	 * ```
 	 */
-	buildSafe(): T {
+	build(this: this & CeriosBrand<T>): T {
 		const missing = this.validateRequiredFields();
 
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
 		}
 
+		return this._actual as T;
+	}
+
+	/**
+	 * Builds the final object with only compile-time validation, skipping runtime checks.
+	 * Use this when you want TypeScript safety but need to skip runtime validation for performance.
+	 *
+	 * - Compile-time: TypeScript enforces all required properties are set
+	 * - Runtime: No validation
+	 *
+	 * @returns The fully built object of type T
+	 */
+	buildWithoutRuntimeValidation(this: this & CeriosBrand<T>): T {
+		return this._actual as T;
+	}
+
+	/**
+	 * Builds the final object with only runtime validation, skipping compile-time checks.
+	 * Use this when building from external data where compile-time checks aren't possible.
+	 *
+	 * - Compile-time: No TypeScript enforcement
+	 * - Runtime: Validates all fields in the requiredTemplate
+	 *
+	 * @returns The fully built object of type T
+	 * @throws {Error} If any required field is missing at runtime
+	 */
+	buildWithoutCompileTimeValidation(): T {
+		const missing = this.validateRequiredFields();
+
+		if (missing.length > 0) {
+			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
+		}
+
+		return this._actual as T;
+	}
+
+	/**
+	 * Builds the final object without any validation (neither compile-time nor runtime).
+	 * Use this only when you're certain the object is valid and need maximum performance.
+	 *
+	 * - Compile-time: No TypeScript enforcement
+	 * - Runtime: No validation
+	 *
+	 * @returns The object of type T (may be incomplete)
+	 */
+	buildUnsafe(): T {
 		return this._actual as T;
 	}
 

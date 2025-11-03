@@ -6,11 +6,11 @@ A powerful TypeScript builder pattern library that provides **compile-time type 
 
 - **Type-Safe Building**: Compile-time validation ensures all required properties are set
 - **Nested Properties Support**: Build deeply nested objects with dot-notation paths
-- **Runtime Validation**: Optional runtime validation with `buildSafe()` and required field templates
+- **Flexible Runtime Validation**: Choose between compile-time, runtime, or both validations
 - **Dynamic Required Fields**: Add required fields at runtime based on your business logic
 - **Method Chaining**: Fluent API for readable object construction
 - **Partial Building**: Build incomplete objects when needed
-- **Zero Runtime Overhead**: All type checking happens at compile time (unless using `buildSafe()`)
+- **Zero Runtime Overhead**: All type checking happens at compile time (unless using runtime validation)
 - **Extensible**: Easy to create custom builder methods
 - **TypeScript First**: Built with TypeScript, for TypeScript
 - **Array Property Helpers**: Easily add values to array properties with type safety
@@ -81,8 +81,10 @@ const user = UserBuilder.create()
 | **Multiple Properties** | `setProperties()` | Set multiple properties at once |
 | **Required Template** | `static requiredTemplate` | Define required fields for runtime validation |
 | **Dynamic Requirements** | `setRequiredFields()` | Add required fields at runtime |
-| **Compile-Time Build** | `build()` | Build with TypeScript type checking |
-| **Runtime Validation** | `buildSafe()` | Build with runtime validation |
+| **Full Validation** | `build()` | Build with both compile-time and runtime validation |
+| **Compile-Time Only** | `buildWithoutRuntimeValidation()` | Build with TypeScript checking only |
+| **Runtime Only** | `buildWithoutCompileTimeValidation()` | Build with runtime validation only |
+| **No Validation** | `buildUnsafe()` | Build without any validation |
 | **Partial Build** | `buildPartial()` | Build incomplete objects |
 
 ## 🔧 Basic Usage
@@ -123,7 +125,6 @@ class UserBuilder extends CeriosBuilder<User> {
         return this.setProperty('age', value);
     }
 
-    // New: Add to array property
     addRole(role: string) {
         return this.addToArrayProperty('roles', role);
     }
@@ -148,7 +149,7 @@ const user = UserBuilder.create()
     .name("John Doe")
     .email("john@example.com")
     .age(30)
-    .addRole("admin") // Add to array property
+    .addRole("admin")
     .addRole("editor")
     .build();
 
@@ -206,7 +207,7 @@ type OrderDetails = {
 };
 
 type Order = {
-    Details: OrderDetails;
+    Details?: OrderDetails;
 };
 
 type OrderRequest = {
@@ -214,15 +215,17 @@ type OrderRequest = {
 };
 
 class OrderRequestBuilder extends CeriosBuilder<OrderRequest> {
+    static requiredTemplate: RequiredFieldsTemplate<OrderRequest> = [
+        'Order.Details.CustomerId',
+        'Order.Details.TotalAmount',
+        'Order.Details.Status',
+        'Order.Details.ShippingAddress.Street',
+        'Order.Details.ShippingAddress.City',
+        'Order.Details.ShippingAddress.Country',
+    ];
+
     static create() {
-        return new OrderRequestBuilder({}, [
-            'Order.Details.CustomerId',
-            'Order.Details.TotalAmount',
-            'Order.Details.Status',
-            'Order.Details.ShippingAddress.Street',
-            'Order.Details.ShippingAddress.City',
-            'Order.Details.ShippingAddress.Country',
-        ]);
+        return new OrderRequestBuilder({});
     }
 
     static createWithDefaults() {
@@ -262,7 +265,7 @@ class OrderRequestBuilder extends CeriosBuilder<OrderRequest> {
     }
 }
 
-// Usage with runtime validation
+// Usage with full validation (both compile-time and runtime)
 const order = OrderRequestBuilder.createWithDefaults()
     .customerId('CUST-001')
     .totalAmount(299.99)
@@ -270,13 +273,13 @@ const order = OrderRequestBuilder.createWithDefaults()
     .shippingStreet('123 Main St')
     .shippingCity('New York')
     .shippingCountry('USA')
-    .buildSafe(); // ✅ Validates all required fields are set
+    .build(); // ✅ TypeScript + runtime validation
 
 // ❌ This will throw an error at runtime
 try {
     const invalidOrder = OrderRequestBuilder.createWithDefaults()
         .customerId('CUST-002')
-        .buildSafe(); // Missing TotalAmount and shipping address fields
+        .buildWithoutCompileTimeValidation(); // Missing TotalAmount and shipping address
 } catch (error) {
     console.error(error.message);
     // "Missing required fields: Order.Details.TotalAmount, Order.Details.ShippingAddress.Street, ..."
@@ -288,13 +291,22 @@ try {
 Define which fields are required and validate them at runtime:
 
 ```typescript
+type Product = {
+    id: string;
+    name: string;
+    price: number;
+    description?: string;
+};
+
 class ProductBuilder extends CeriosBuilder<Product> {
+    static requiredTemplate: RequiredFieldsTemplate<Product> = [
+        'id',
+        'name',
+        'price',
+    ];
+
     static create() {
-        return new ProductBuilder({}, [
-            'id',
-            'name',
-            'price',
-        ]);
+        return new ProductBuilder({});
     }
 
     id(value: string) {
@@ -314,18 +326,30 @@ class ProductBuilder extends CeriosBuilder<Product> {
     }
 }
 
-// Use buildSafe() for runtime validation
+// Full validation (compile-time + runtime)
 const product = ProductBuilder.create()
     .id('PROD-001')
     .name('Laptop')
     .price(999.99)
-    .buildSafe(); // ✅ All required fields are set
+    .build(); // ✅ All required fields are set
 
-// This will throw an error
-const invalidProduct = ProductBuilder.create()
+// Runtime-only validation (useful for dynamic data)
+const dynamicProduct = ProductBuilder.create()
     .id('PROD-002')
     .name('Mouse')
-    .buildSafe(); // ❌ Error: Missing required fields: price
+    .price(29.99)
+    .buildWithoutCompileTimeValidation(); // ✅ Runtime check passes
+
+// ❌ This will throw an error at runtime
+try {
+    const invalidProduct = ProductBuilder.create()
+        .id('PROD-003')
+        .name('Keyboard')
+        .buildWithoutCompileTimeValidation(); // Missing price
+} catch (error) {
+    console.error(error.message);
+    // "Missing required fields: price"
+}
 ```
 
 ### Dynamic Required Fields
@@ -333,13 +357,23 @@ const invalidProduct = ProductBuilder.create()
 Add required fields at runtime based on business logic:
 
 ```typescript
+type Employee = {
+    firstName: string;
+    lastName: string;
+    email: string;
+    employeeId?: string;
+    phone?: string;
+};
+
 class EmployeeBuilder extends CeriosBuilder<Employee> {
+    static requiredTemplate: RequiredFieldsTemplate<Employee> = [
+        'firstName',
+        'lastName',
+        'email',
+    ];
+
     static create() {
-        return new EmployeeBuilder({}, [
-            'firstName',
-            'lastName',
-            'email',
-        ]);
+        return new EmployeeBuilder({});
     }
 
     firstName(value: string) {
@@ -363,12 +397,12 @@ class EmployeeBuilder extends CeriosBuilder<Employee> {
     }
 }
 
-// Scenario 1: New employee (no ID required)
+// Scenario 1: New employee (only basic fields required)
 const newEmployee = EmployeeBuilder.create()
     .firstName('John')
     .lastName('Doe')
     .email('john.doe@company.com')
-    .buildSafe(); // ✅ Only validates firstName, lastName, email
+    .build(); // ✅ Only validates firstName, lastName, email
 
 // Scenario 2: Existing employee (ID required)
 const existingEmployee = EmployeeBuilder.create()
@@ -376,8 +410,8 @@ const existingEmployee = EmployeeBuilder.create()
     .firstName('Jane')
     .lastName('Smith')
     .email('jane.smith@company.com')
-    .employeeId('EMP-12345') // Must provide employeeId
-    .buildSafe(); // ✅ Validates firstName, lastName, email, AND employeeId
+    .employeeId('EMP-12345')
+    .buildWithoutCompileTimeValidation(); // ✅ Runtime validates all fields including employeeId
 
 // Scenario 3: Employee with contact requirement
 const contactEmployee = EmployeeBuilder.create()
@@ -387,16 +421,27 @@ const contactEmployee = EmployeeBuilder.create()
     .email('bob.johnson@company.com')
     .phone('+1-555-0123')
     .employeeId('EMP-67890')
-    .buildSafe(); // ✅ Validates all fields including phone and employeeId
+    .buildWithoutCompileTimeValidation(); // ✅ Validates all including phone and employeeId
+
+// ❌ This will fail - missing dynamically required field
+try {
+    const invalidEmployee = EmployeeBuilder.create()
+        .setRequiredFields(['employeeId'])
+        .firstName('Alice')
+        .lastName('Brown')
+        .email('alice.brown@company.com')
+        .buildWithoutCompileTimeValidation(); // Missing employeeId
+} catch (error) {
+    console.error(error.message);
+    // "Missing required fields: employeeId"
+}
 ```
 
 ### Four Ways to Set Up Required Fields for Deeply Nested Properties
 
-When working with deeply nested structures, you have **four approaches** to configure required field validation:
+When working with deeply nested structures, you have **multiple approaches** to configure required field validation:
 
-#### 1. Static Template in Constructor (Recommended for Fixed Requirements)
-
-Define required fields once at the class level and pass them through the constructor. Best for when required fields never change.
+#### 1. Static Template at Class Level (Recommended for Fixed Requirements)
 
 ```typescript
 type Address = {
@@ -426,7 +471,6 @@ class OrderBuilder extends CeriosBuilder<Order> {
     ];
 
     static create() {
-        // Pass template through constructor
         return new OrderBuilder({});
     }
 
@@ -451,98 +495,17 @@ class OrderBuilder extends CeriosBuilder<Order> {
     }
 }
 
-// Usage: All required fields validated by template
+// Usage: Runtime validation checks all required fields
 const order = OrderBuilder.create()
     .customerId('CUST-001')
     .totalAmount(299.99)
     .shippingStreet('123 Main St')
     .shippingCity('New York')
     .shippingCountry('USA')
-    .buildSafe(); // ✅ Validates all 5 required nested fields
+    .buildWithoutCompileTimeValidation(); // ✅ Validates all 5 required nested fields
 ```
 
-#### 2. Inline Constructor Template (Simple and Direct)
-
-Pass the required template directly in the constructor without defining a static property. Best for simple cases or when you want to keep everything in one place.
-
-```typescript
-type Address = {
-    Street: string;
-    City: string;
-    Country: string;
-    PostalCode?: string;
-};
-
-type OrderDetails = {
-    CustomerId: string;
-    TotalAmount: number;
-    ShippingAddress: Address;
-};
-
-type Order = {
-    Details: OrderDetails;
-};
-
-class OrderBuilder extends CeriosBuilder<Order> {
-    // Method 2: Pass template directly in constructor (no static property needed)
-    static create() {
-        return new OrderBuilder({}, [
-            'Details.CustomerId',
-            'Details.TotalAmount',
-            'Details.ShippingAddress.Street',
-            'Details.ShippingAddress.City',
-            'Details.ShippingAddress.Country',
-        ]);
-    }
-
-    customerId(value: string) {
-        return this.setNestedProperty('Details.CustomerId', value);
-    }
-
-    totalAmount(value: number) {
-        return this.setNestedProperty('Details.TotalAmount', value);
-    }
-
-    shippingStreet(value: string) {
-        return this.setNestedProperty('Details.ShippingAddress.Street', value);
-    }
-
-    shippingCity(value: string) {
-        return this.setNestedProperty('Details.ShippingAddress.City', value);
-    }
-
-    shippingCountry(value: string) {
-        return this.setNestedProperty('Details.ShippingAddress.Country', value);
-    }
-
-    shippingPostalCode(value: string) {
-        return this.setNestedProperty('Details.ShippingAddress.PostalCode', value);
-    }
-}
-
-// Usage: Same validation as Method 1, but simpler setup
-const order = OrderBuilder.create()
-    .customerId('CUST-001')
-    .totalAmount(299.99)
-    .shippingStreet('123 Main St')
-    .shippingCity('New York')
-    .shippingCountry('USA')
-    .buildSafe(); // ✅ Validates all required nested fields
-
-// ❌ Still validates properly
-try {
-    const invalidOrder = OrderBuilder.create()
-        .customerId('CUST-002')
-        .buildSafe();
-} catch (error) {
-    console.error(error.message);
-    // "Missing required fields: Details.TotalAmount, Details.ShippingAddress.Street, ..."
-}
-```
-
-#### 3. Dynamic Required Fields via `setRequiredFields()` (Best for Conditional Logic)
-
-Add required fields at runtime based on business logic. Combines static template with dynamic additions.
+#### 2. Dynamic Required Fields via `setRequiredFields()` (Best for Conditional Logic)
 
 ```typescript
 class OrderBuilder extends CeriosBuilder<Order> {
@@ -555,7 +518,6 @@ class OrderBuilder extends CeriosBuilder<Order> {
         return new OrderBuilder({});
     }
 
-    // Method 3: Add required fields dynamically for specific scenarios
     static createInternational() {
         return this.create()
             .setRequiredFields([
@@ -607,7 +569,7 @@ const domesticOrder = OrderBuilder.createDomestic()
     .shippingStreet('123 Main St')
     .shippingCity('New York')
     .shippingCountry('USA')
-    .buildSafe(); // ✅ Valid without postal code
+    .buildWithoutCompileTimeValidation(); // ✅ Valid without postal code
 
 // International order: postal code is required
 const internationalOrder = OrderBuilder.createInternational()
@@ -616,8 +578,8 @@ const internationalOrder = OrderBuilder.createInternational()
     .shippingStreet('10 Downing Street')
     .shippingCity('London')
     .shippingCountry('UK')
-    .shippingPostalCode('SW1A 2AA') // Must provide postal code
-    .buildSafe(); // ✅ All fields including postal code validated
+    .shippingPostalCode('SW1A 2AA')
+    .buildWithoutCompileTimeValidation(); // ✅ All fields including postal code validated
 
 // ❌ This will fail - missing postal code for international
 try {
@@ -627,129 +589,11 @@ try {
         .shippingStreet('Rue de Rivoli')
         .shippingCity('Paris')
         .shippingCountry('France')
-        .buildSafe(); // Missing PostalCode
+        .buildWithoutCompileTimeValidation(); // Missing PostalCode
 } catch (error) {
     console.error(error.message);
     // "Missing required fields: Details.ShippingAddress.PostalCode"
 }
-```
-
-#### 4. Inline Dynamic Fields (Best for One-Off Requirements)
-
-Add required fields inline during the building process. Useful for special cases.
-
-```typescript
-class OrderBuilder extends CeriosBuilder<Order> {
-    static create() {
-        return new OrderBuilder({}, ['Details.CustomerId']);
-    }
-
-    customerId(value: string) {
-        return this.setNestedProperty('Details.CustomerId', value);
-    }
-
-    totalAmount(value: number) {
-        return this.setNestedProperty('Details.TotalAmount', value);
-    }
-
-    shippingStreet(value: string) {
-        return this.setNestedProperty('Details.ShippingAddress.Street', value);
-    }
-
-    shippingCity(value: string) {
-        return this.setNestedProperty('Details.ShippingAddress.City', value);
-    }
-
-    shippingCountry(value: string) {
-        return this.setNestedProperty('Details.ShippingAddress.Country', value);
-    }
-}
-
-// Method 4: Inline requirement based on runtime data
-function createOrder(isPaidOrder: boolean, requiresShipping: boolean) {
-    let builder = OrderBuilder.create()
-        .customerId('CUST-001');
-
-    // Add requirements inline based on conditions
-    if (isPaidOrder) {
-        builder = builder.setRequiredFields(['Details.TotalAmount']);
-    }
-
-    if (requiresShipping) {
-        builder = builder.setRequiredFields([
-            'Details.ShippingAddress.Street',
-            'Details.ShippingAddress.City',
-            'Details.ShippingAddress.Country',
-        ]);
-    }
-
-    return builder;
-}
-
-// Free order without shipping (digital product)
-const digitalOrder = createOrder(false, false)
-    .buildSafe(); // ✅ Only CustomerId required
-
-// Paid order without shipping (in-store pickup)
-const pickupOrder = createOrder(true, false)
-    .totalAmount(49.99)
-    .buildSafe(); // ✅ CustomerId + TotalAmount required
-
-// Paid order with shipping
-const shippedOrder = createOrder(true, true)
-    .totalAmount(99.99)
-    .shippingStreet('456 Oak Ave')
-    .shippingCity('Boston')
-    .shippingCountry('USA')
-    .buildSafe(); // ✅ All fields validated
-```
-
-#### Choosing the Right Approach
-
-| Approach | When to Use | Pros | Cons |
-|----------|-------------|------|------|
-| **Static Template** | Requirements never change, need reusability | Simple, clear, type-safe, reusable | Inflexible, extra line of code |
-| **Inline Constructor** | Simple cases, one factory method | Minimal code, clear, type-safe | Template not reusable elsewhere |
-| **Dynamic via Factory** | Multiple predefined scenarios | Reusable, organized, type-safe | More boilerplate |
-| **Inline Dynamic** | Runtime-dependent logic | Maximum flexibility | Less discoverable |
-
-**Best Practice**: Combine approaches! Use a static template for core required fields, then add dynamic requirements for conditional scenarios:
-
-```typescript
-class OrderBuilder extends CeriosBuilder<Order> {
-    // Core fields always required
-    static requiredTemplate: RequiredFieldsTemplate<Order> = [
-        'Details.CustomerId',
-    ];
-
-    static create() {
-        return new OrderBuilder({});
-    }
-
-    // Scenario-specific factory methods
-    static createPaid() {
-        return this.create().setRequiredFields(['Details.TotalAmount']);
-    }
-
-    static createShippable() {
-        return this.createPaid().setRequiredFields([
-            'Details.ShippingAddress.Street',
-            'Details.ShippingAddress.City',
-            'Details.ShippingAddress.Country',
-        ]);
-    }
-
-    // ... builder methods
-}
-
-// Usage is clear and type-safe
-const order = OrderBuilder.createShippable()
-    .customerId('CUST-001')
-    .totalAmount(199.99)
-    .shippingStreet('789 Maple Dr')
-    .shippingCity('Seattle')
-    .shippingCountry('USA')
-    .buildSafe(); // ✅ All required fields validated
 ```
 
 ### Building Test Data
@@ -757,6 +601,13 @@ const order = OrderBuilder.createShippable()
 Perfect for creating test fixtures with sensible defaults:
 
 ```typescript
+type Product = {
+    name: string;
+    price: number;
+    category: string;
+    tags?: string[];
+};
+
 class ProductBuilder extends CeriosBuilder<Product> {
     static create() {
         return new ProductBuilder({});
@@ -774,7 +625,6 @@ class ProductBuilder extends CeriosBuilder<Product> {
         return this.setProperty('category', value);
     }
 
-    // Add to array property
     addTag(tag: string) {
         return this.addToArrayProperty('tags', tag);
     }
@@ -849,7 +699,6 @@ class AddressBuilder extends CeriosBuilder<Address> {
         return this.setProperty('zipCode', value);
     }
 
-    // Preset addresses
     asUSAddress() {
         return this.country('United States');
     }
@@ -876,18 +725,15 @@ class CustomerBuilder extends CeriosBuilder<Customer> {
         return this.setProperty('phoneNumber', value);
     }
 
-    // Add to array property
     addNote(note: string) {
         return this.addToArrayProperty('notes', note);
     }
 
-    // Build address inline
     withAddress(builderFn: (builder: AddressBuilder) => AddressBuilder & CeriosBrand<Address>) {
         const address = builderFn(AddressBuilder.create()).build();
         return this.setProperty('address', address);
     }
 
-    // Build address with defaults (pre-sets city and country)
     withAddressDefaults(
         builderFn: (
             builder: AddressBuilder & CeriosBrand<Pick<Address, "city" | "country">>
@@ -913,11 +759,11 @@ const customer = CustomerBuilder.create()
     .phoneNumber('+1-555-0123')
     .build();
 
-// Usage with defaults (only set street, city/country are pre-filled)
+// Usage with defaults
 const customerWithDefaults = CustomerBuilder.create()
     .id('CUST-002')
     .name('Bob Smith')
-    .withAddressDefaults(addr => addr.street('456 Elm St'))  // city and country are already set to defaults
+    .withAddressDefaults(addr => addr.street('456 Elm St'))
     .addNote("New customer")
     .build();
 
@@ -1013,13 +859,13 @@ const order = OrderRequestBuilder.createWithDefaults()
     .shippingStreet('123 Main St')
     .shippingCity('New York')
     .shippingCountry('USA')
-    .buildSafe(); // ✅ Runtime validation ensures all required fields are set
+    .build(); // ✅ Both compile-time and runtime validation
 
-// ✅ Clear error messages
+// ✅ Clear error messages at runtime
 try {
     const invalid = OrderRequestBuilder.createWithDefaults()
         .customerId('CUST-002')
-        .buildSafe();
+        .buildWithoutCompileTimeValidation();
 } catch (error) {
     console.error(error.message);
     // "Missing required fields: Order.Details.TotalAmount,
@@ -1030,8 +876,8 @@ try {
 ### Benefits
 
 - **Type-Safe Paths**: Dot notation with full IntelliSense support
-- **Runtime Validation**: Optional runtime checks with clear error messages
-- **Flexible Requirements**: Static templates + dynamic required fields
+- **Flexible Validation**: Choose compile-time, runtime, both, or neither
+- **Dynamic Requirements**: Static templates + dynamic required fields
 - **Deep Nesting**: Handle complex nested structures easily
 - **Developer Experience**: Better autocomplete and error messages
 
@@ -1052,9 +898,34 @@ Base class for all builders.
 - `setNestedProperty<P>(path: P, value: PathValue<T, P>)` - Sets a deeply nested property using dot notation
 - `addToArrayProperty<K, V>(key: K, value: V)` - Adds a value to an array property and returns a new builder instance
 - `setRequiredFields(fields: ReadonlyArray<Path<T>>)` - Sets required fields dynamically for this instance
-- `build()` - Builds the final object (only available when all required properties are set via type system)
-- `buildSafe()` - Builds the final object with runtime validation of required fields from template
-- `buildPartial()` - Builds a partial object with currently set properties
+
+#### Build Methods
+
+- **`build()`** - Builds with **both compile-time and runtime validation** (recommended)
+  - Compile-time: TypeScript enforces all required properties are set
+  - Runtime: Validates all fields in the `requiredTemplate`
+  - Throws error if any required field is missing
+
+- **`buildWithoutRuntimeValidation()`** - Builds with **compile-time validation only**
+  - Compile-time: TypeScript enforces all required properties are set
+  - Runtime: No validation (better performance)
+  - Use when you trust the type system and need speed
+
+- **`buildWithoutCompileTimeValidation()`** - Builds with **runtime validation only**
+  - Compile-time: No TypeScript enforcement
+  - Runtime: Validates all fields in the `requiredTemplate`
+  - Use when building from external data where compile-time checks aren't possible
+  - Throws error if any required field is missing
+
+- **`buildUnsafe()`** - Builds **without any validation**
+  - Compile-time: No TypeScript enforcement
+  - Runtime: No validation
+  - Use only when you're certain the object is valid and need maximum performance
+  - Returns potentially incomplete object
+
+- **`buildPartial()`** - Builds a **partial object**
+  - Returns `Partial<T>` with currently set properties
+  - Useful for progressive form filling or template objects
 
 ### RequiredFieldsTemplate<T>
 
@@ -1094,85 +965,161 @@ type User = {
 
 Type utility that tracks which properties have been set at the type level.
 
-## � Build Methods Explained
+## 🛠️ Build Methods Explained
 
-### `build()` - Compile-Time Safety
+### `build()` - Full Validation (Recommended)
 
-Use `build()` when you want **compile-time type safety**. TypeScript will enforce that all required properties are set before allowing the build.
+Use `build()` when you want **both compile-time and runtime validation**. This is the safest option.
 
 ```typescript
-type User = {
-    id: string;
-    name: string;
-    email: string;
-};
+class UserBuilder extends CeriosBuilder<User> {
+    static requiredTemplate: RequiredFieldsTemplate<User> = ['id', 'name', 'email'];
+    // ... methods
+}
 
 const user = UserBuilder.create()
     .id('123')
     .name('John')
     .email('john@example.com')
-    .build(); // ✅ Compiles - all required fields set
+    .build(); // ✅ TypeScript + runtime validation
 
+// ❌ TypeScript error - missing email
+const invalid1 = UserBuilder.create()
+    .id('123')
+    .name('John')
+    .build();
+
+// ❌ Runtime error - missing email
+try {
+    const invalid2 = UserBuilder.create()
+        .id('123')
+        .name('John')
+        .build();
+} catch (error) {
+    console.error(error.message); // "Missing required fields: email"
+}
+```
+
+**Use when:**
+- You want maximum safety
+- Building critical business objects
+- You have a required template defined
+
+### `buildWithoutRuntimeValidation()` - Compile-Time Only
+
+Use when you want **TypeScript safety** but need to skip runtime validation for performance.
+
+```typescript
+const user = UserBuilder.create()
+    .id('123')
+    .name('John')
+    .email('john@example.com')
+    .buildWithoutRuntimeValidation(); // ✅ Fast build, no runtime check
+
+// ❌ Still won't compile - TypeScript enforces types
 const invalid = UserBuilder.create()
     .id('123')
     .name('John')
-    .build(); // ❌ TypeScript error - missing email
+    .buildWithoutRuntimeValidation();
 ```
 
-### `buildSafe()` - Runtime Validation
+**Use when:**
+- Performance is critical
+- You trust the type system
+- Building many objects in loops
 
-Use `buildSafe()` when you want **runtime validation** using the `requiredTemplate`. This is useful when:
-- Building from user input or external data
-- You want to validate deeply nested required fields
-- You need dynamic required fields based on business logic
+### `buildWithoutCompileTimeValidation()` - Runtime Only
+
+Use when building from **external data** where compile-time checks aren't possible.
 
 ```typescript
-class OrderBuilder extends CeriosBuilder<Order> {
-    static requiredTemplate: RequiredFieldsTemplate<Order> = [
-        'Details.CustomerId',
-        'Details.TotalAmount',
-    ];
+function buildFromAPI(data: any) {
+    const builder = UserBuilder.create();
 
-    static create() {
-        return new OrderBuilder({});
-    }
-    // ... methods
+    if (data.id) builder = builder.id(data.id);
+    if (data.name) builder = builder.name(data.name);
+    if (data.email) builder = builder.email(data.email);
+
+    return builder.buildWithoutCompileTimeValidation(); // Runtime validation
 }
 
-const order = OrderBuilder.create()
-    .customerId('CUST-001')
-    .totalAmount(100)
-    .buildSafe(); // ✅ Runtime validation passes
+// ✅ Valid data passes
+const user = buildFromAPI({ id: '123', name: 'John', email: 'john@example.com' });
 
-const invalid = OrderBuilder.create()
-    .customerId('CUST-002')
-    .buildSafe(); // ❌ Throws: "Missing required fields: Details.TotalAmount"
+// ❌ Invalid data throws
+try {
+    const invalid = buildFromAPI({ id: '123', name: 'John' }); // Missing email
+} catch (error) {
+    console.error(error.message); // "Missing required fields: email"
+}
 ```
 
-### `buildPartial()` - No Validation
+**Use when:**
+- Building from API responses
+- Processing user input
+- Working with dynamic data
+- Need runtime validation without TypeScript constraints
 
-Use `buildPartial()` when you need to build an incomplete object:
+### `buildUnsafe()` - No Validation
+
+Use **only when you're certain** the object is valid and need maximum performance.
+
+```typescript
+const user = UserBuilder.create()
+    .id('123')
+    .buildUnsafe(); // ⚠️ No checks at all
+
+console.log(user); // { id: '123' } - potentially incomplete!
+```
+
+**Use when:**
+- You're absolutely certain the data is valid
+- Maximum performance is required
+- Building throwaway test objects
+
+### `buildPartial()` - Partial Objects
+
+Use when you need **incomplete objects**.
 
 ```typescript
 const partial = UserBuilder.create()
     .name('Incomplete User')
     .buildPartial(); // Returns Partial<User>
 
-// Useful for:
-// - Progressive form filling
-// - Template objects
-// - Partial updates
+console.log(partial); // { name: 'Incomplete User' }
 ```
+
+**Use when:**
+- Progressive form filling
+- Template objects
+- Partial updates
+- Inspecting builder state
+
+### Comparison Table
+
+| Method | Compile-Time Check | Runtime Check | Performance | Safety | Use Case |
+|--------|-------------------|---------------|-------------|--------|----------|
+| `build()` | ✅ | ✅ | Medium | Highest | Production code |
+| `buildWithoutRuntimeValidation()` | ✅ | ❌ | Fast | High | Performance-critical |
+| `buildWithoutCompileTimeValidation()` | ❌ | ✅ | Medium | Medium | External data |
+| `buildUnsafe()` | ❌ | ❌ | Fastest | Lowest | Trusted scenarios only |
+| `buildPartial()` | ❌ | ❌ | Fast | N/A | Incomplete objects |
 
 ## 💡 Best Practices
 
 1. **Use `setNestedProperty()` for deep structures**: Instead of building nested objects separately, use dot notation for better type safety and cleaner code.
 
-2. **Define `requiredTemplate` for runtime validation**: When working with external data or complex validation rules, define a required template and use `buildSafe()`.
+2. **Define `requiredTemplate` for runtime validation**: When working with external data or complex validation rules, define a required template.
 
-3. **Use `setRequiredFields()` for conditional requirements**: When requirements change based on context (e.g., new vs existing records), use dynamic required fields.
+3. **Choose the right build method**:
+   - Default to `build()` for safety
+   - Use `buildWithoutRuntimeValidation()` for performance
+   - Use `buildWithoutCompileTimeValidation()` for external data
+   - Use `buildUnsafe()` only when absolutely necessary
 
-4. **Create factory methods**: Use static `create()` and `createWithDefaults()` methods for better ergonomics:
+4. **Use `setRequiredFields()` for conditional requirements**: When requirements change based on context (e.g., new vs existing records), use dynamic required fields.
+
+5. **Create factory methods**: Use static `create()` and `createWithDefaults()` methods for better ergonomics:
    ```typescript
    static createWithDefaults() {
        return this.create()
@@ -1181,15 +1128,15 @@ const partial = UserBuilder.create()
    }
    ```
 
-5. **Combine with validation libraries**: Use `buildSafe()` with libraries like Zod for comprehensive validation:
+6. **Combine with validation libraries**: Use runtime validation with libraries like Zod for comprehensive validation:
    ```typescript
-   const data = builder.buildSafe();
+   const data = builder.buildWithoutCompileTimeValidation();
    const validated = orderSchema.parse(data); // Zod validation
    ```
 
-6. **Keep builders focused**: One builder per entity type - don't try to handle multiple unrelated types in one builder.
+7. **Keep builders focused**: One builder per entity type - don't try to handle multiple unrelated types in one builder.
 
-7. **Use type-safe paths**: The `RequiredFieldsTemplate` type ensures you can only specify valid paths:
+8. **Use type-safe paths**: The `RequiredFieldsTemplate` type ensures you can only specify valid paths:
    ```typescript
    static requiredTemplate: RequiredFieldsTemplate<Order> = [
        'Details.CustomerId', // ✅ Valid path
@@ -1197,7 +1144,7 @@ const partial = UserBuilder.create()
    ];
    ```
 
-## �📄 License
+## 📄 License
 
 MIT © [Cerios](LICENSE)
 

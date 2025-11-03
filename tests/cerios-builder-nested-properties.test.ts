@@ -130,7 +130,7 @@ test("should build with runtime validation when all required fields are set", ()
 		.shippingStreet("123 Main St")
 		.shippingCity("New York")
 		.shippingCountry("USA")
-		.buildSafe();
+		.buildWithoutCompileTimeValidation();
 
 	expect(order.Order.Details?.CustomerId).toBe("CUST-001");
 	expect(order.Order.Details?.TotalAmount).toBe(299.99);
@@ -138,9 +138,9 @@ test("should build with runtime validation when all required fields are set", ()
 	expect(order.Order.Details?.ShippingAddress.Street).toBe("123 Main St");
 });
 
-test("should throw error when required fields are missing with buildSafe", () => {
+test("should throw error when required fields are missing with buildWithoutCompileTimeValidation", () => {
 	expect(() => {
-		OrderRequestBuilder.createWithDefaults().buildSafe();
+		OrderRequestBuilder.createWithDefaults().buildWithoutCompileTimeValidation();
 	}).toThrow(
 		"Missing required fields: Order.Details.CustomerId, Order.Details.TotalAmount, Order.Details.ShippingAddress.Street, Order.Details.ShippingAddress.City, Order.Details.ShippingAddress.Country"
 	);
@@ -148,7 +148,10 @@ test("should throw error when required fields are missing with buildSafe", () =>
 
 test("should throw error when some required fields are missing", () => {
 	expect(() => {
-		OrderRequestBuilder.createWithDefaults().customerId("CUST-001").totalAmount(100).buildSafe();
+		OrderRequestBuilder.createWithDefaults()
+			.customerId("CUST-001")
+			.totalAmount(100)
+			.buildWithoutCompileTimeValidation();
 	}).toThrow(
 		"Missing required fields: Order.Details.ShippingAddress.Street, Order.Details.ShippingAddress.City, Order.Details.ShippingAddress.Country"
 	);
@@ -169,7 +172,7 @@ test("should allow setting required fields dynamically via setRequiredFields", (
 		// And the dynamically added field
 		.orderNumber("ORD-001");
 
-	expect(() => builder.buildSafe()).not.toThrow();
+	expect(() => builder.buildWithoutCompileTimeValidation()).not.toThrow();
 
 	const builderMissing = OrderRequestBuilder.create()
 		.setRequiredFields(["Order.Details.OrderNumber"])
@@ -181,7 +184,9 @@ test("should allow setting required fields dynamically via setRequiredFields", (
 		.shippingCountry("USA");
 	// Missing OrderNumber
 
-	expect(() => builderMissing.buildSafe()).toThrow("Missing required fields: Order.Details.OrderNumber");
+	expect(() => builderMissing.buildWithoutCompileTimeValidation()).toThrow(
+		"Missing required fields: Order.Details.OrderNumber"
+	);
 });
 
 test("should combine static template and dynamic required fields", () => {
@@ -194,10 +199,12 @@ test("should combine static template and dynamic required fields", () => {
 		.shippingCity("New York")
 		.shippingCountry("USA");
 
-	expect(() => builder.buildSafe()).toThrow("Missing required fields: Order.Details.OrderNumber");
+	expect(() => builder.buildWithoutCompileTimeValidation()).toThrow(
+		"Missing required fields: Order.Details.OrderNumber"
+	);
 
 	const builderComplete = builder.orderNumber("ORD-001");
-	expect(() => builderComplete.buildSafe()).not.toThrow();
+	expect(() => builderComplete.buildWithoutCompileTimeValidation()).not.toThrow();
 });
 
 test("should allow setting optional nested properties", () => {
@@ -217,7 +224,7 @@ test("should allow setting optional nested properties", () => {
 				},
 			],
 		})
-		.buildSafe();
+		.buildWithoutCompileTimeValidation();
 
 	expect(order.Order.Items).toBeDefined();
 	expect(order.Order.Items?.Items).toHaveLength(1);
