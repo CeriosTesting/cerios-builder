@@ -380,4 +380,16 @@ export abstract class CeriosBuilder<T extends object> {
 	buildPartial(): Partial<T> {
 		return this._actual as Partial<T>;
 	}
+
+	/**
+	 * @deprecated Use build() instead. buildSafe() is now an alias for build().
+	 * Builds the final object with runtime validation using the requiredTemplate.
+	 * This method validates that all fields in the requiredTemplate array are present.
+	 *
+	 * @returns The fully built object of type T
+	 * @throws {Error} If any required field is missing at runtime
+	 */
+	buildSafe(): T {
+		return this.buildWithoutCompileTimeValidation();
+	}
 }
