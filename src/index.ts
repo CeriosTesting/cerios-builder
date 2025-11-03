@@ -1,1 +1,1 @@
-export { CeriosBrand, CeriosBuilder } from "./cerios-builder.js";
+export { CeriosBrand, CeriosBuilder, RequiredFieldsTemplate } from "./cerios-builder.js";

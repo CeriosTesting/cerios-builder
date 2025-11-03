@@ -15,6 +15,35 @@ declare const __brand: unique symbol;
 export type CeriosBrand<T> = { [__brand]: T };
 
 /**
+ * Helper type to represent a path through an object structure
+ */
+type PathImpl<T, Key extends keyof T> = Key extends string
+	? T[Key] extends Record<string, any>
+		?
+				| `${Key}.${PathImpl<T[Key], Exclude<keyof T[Key], keyof any[]>> & string}`
+				| `${Key}.${Exclude<keyof T[Key], keyof any[]> & string}`
+		: never
+	: never;
+
+type Path<T> = PathImpl<T, keyof T> | keyof T;
+
+type PathValue<T, P extends Path<T>> = P extends `${infer Key}.${infer Rest}`
+	? Key extends keyof T
+		? Rest extends Path<T[Key]>
+			? PathValue<T[Key], Rest>
+			: never
+		: never
+	: P extends keyof T
+		? T[P]
+		: never;
+
+/**
+ * Type-safe template for defining required fields using an array of paths.
+ * Simply list the paths that are required.
+ */
+export type RequiredFieldsTemplate<T> = ReadonlyArray<Path<T>>;
+
+/**
  * Abstract base class for creating type-safe builders with automatic property setters and compile-time validation of required fields.
  *
  * This class is intended to be extended by concrete builder implementations for your own types.
@@ -24,6 +53,7 @@ export type CeriosBrand<T> = { [__brand]: T };
  * ```typescript
  * interface MyType { foo: string; bar: number[]; }
  * class MyTypeBuilder extends CeriosBuilder<MyType> {
+ *   static requiredTemplate: RequiredFieldsTemplate<MyType> = ['foo'];
  *   setFoo(value: string) { return this.setProperty('foo', value); }
  *   addBar(value: number) { return this.addToArrayProperty('bar', value); }
  * }
@@ -31,19 +61,107 @@ export type CeriosBrand<T> = { [__brand]: T };
  * const obj = new MyTypeBuilder({})
  *   .setFoo('hello')
  *   .addBar(42)
- *   .build();
+ *   .buildSafe(); // Validates that 'foo' is set
  * ```
  *
  * @template T - The complete type being built
  */
 export abstract class CeriosBuilder<T extends object> {
 	/**
+	 * Template defining which fields are required for this builder.
+	 * Subclasses should override this to specify their required fields as an array of paths.
+	 * The template is type-safe - only valid paths from type T can be used.
+	 */
+	static requiredTemplate?: ReadonlyArray<string>;
+
+	/**
+	 * Instance-level required fields that can be populated dynamically.
+	 * This allows adding required fields at runtime via the setRequiredFields method.
+	 * @private
+	 */
+	private _requiredFields: Set<string> = new Set();
+
+	/**
+	 * Sets the required fields for this builder instance.
+	 * This allows you to dynamically define which fields are required.
+	 *
+	 * @param fields - Array of dot-notation paths to required fields
+	 * @returns The builder instance for chaining
+	 *
+	 * @example
+	 * ```typescript
+	 * const builder = new MyBuilder({})
+	 *   .setRequiredFields(['path.to.field1', 'path.to.field2'])
+	 *   .setField1('value1')
+	 *   .setField2('value2')
+	 *   .buildSafe();
+	 * ```
+	 */
+	setRequiredFields(fields: ReadonlyArray<Path<T>>): this {
+		this._requiredFields = new Set([...fields] as string[]);
+		return this;
+	}
+
+	/**
+	 * Gets the combined required fields from both the static template and instance-level fields.
+	 * @private
+	 */
+	private getRequiredTemplate(): ReadonlyArray<string> {
+		const ctor = this.constructor as typeof CeriosBuilder;
+		const staticFields = ctor.requiredTemplate || [];
+		const instanceFields = Array.from(this._requiredFields);
+
+		// Combine and deduplicate
+		return [...new Set([...staticFields, ...instanceFields])];
+	}
+
+	/**
+	 * Validates that all fields in the required template have been set.
+	 * @private
+	 */
+	private validateRequiredFields(): string[] {
+		const requiredPaths = this.getRequiredTemplate();
+		const missing: string[] = [];
+
+		for (const path of requiredPaths) {
+			const keys = path.split(".");
+			let current: any = this._actual;
+
+			for (let i = 0; i < keys.length; i++) {
+				const key = keys[i];
+				if (current === null || current === undefined || !(key in current)) {
+					missing.push(path);
+					break;
+				}
+				current = current[key];
+			}
+
+			// Check if the final value is null or undefined
+			if (current === null || current === undefined) {
+				if (!missing.includes(path)) {
+					missing.push(path);
+				}
+			}
+		}
+
+		return missing;
+	}
+
+	/**
 	 * Creates a new builder instance. Intended to be called by subclasses.
 	 *
 	 * @param _actual - The current partial state of the object being built
+	 * @param _requiredFields - Optional array of required field paths to preserve across instances
 	 * @protected
 	 */
-	protected constructor(protected readonly _actual: Partial<T>) {}
+	protected constructor(
+		protected readonly _actual: Partial<T>,
+		_requiredFields?: RequiredFieldsTemplate<T>
+	) {
+		if (_requiredFields) {
+			this._requiredFields = new Set([..._requiredFields] as string[]);
+		}
+	}
 
 	/**
 	 * Sets a property value and returns a new builder instance with updated type state.
@@ -56,11 +174,14 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @protected
 	 */
 	protected setProperty<K extends keyof T>(key: K, value: T[K]): this & CeriosBrand<Pick<T, K>> {
-		const BuilderClass = this.constructor as new (data: any) => any;
-		return new BuilderClass({
-			...this._actual,
-			[key]: value,
-		}) as this & CeriosBrand<Pick<T, K>>;
+		const BuilderClass = this.constructor as new (data: any, requiredFields?: RequiredFieldsTemplate<T>) => any;
+		return new BuilderClass(
+			{
+				...this._actual,
+				[key]: value,
+			},
+			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>
+		) as this & CeriosBrand<Pick<T, K>>;
 	}
 
 	/**
@@ -70,11 +191,77 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @protected
 	 */
 	protected setProperties<K extends keyof T>(props: Pick<T, K>): this & CeriosBrand<Pick<T, K>> {
-		const BuilderClass = this.constructor as new (data: any) => any;
-		return new BuilderClass({
-			...this._actual,
-			...props,
-		}) as this & CeriosBrand<Pick<T, K>>;
+		const BuilderClass = this.constructor as new (data: any, requiredFields?: RequiredFieldsTemplate<T>) => any;
+		return new BuilderClass(
+			{
+				...this._actual,
+				...props,
+			},
+			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>
+		) as this & CeriosBrand<Pick<T, K>>;
+	}
+
+	/**
+	 * Sets a deeply nested property value and returns a new builder instance with updated type state.
+	 * This method uses dot notation to set nested properties in a type-safe way.
+	 *
+	 * @template P - The property path (e.g., "parent.child.grandchild")
+	 * @param path - The dot-notation path to the property
+	 * @param value - The value to assign to the nested property
+	 * @returns A new builder instance with the nested property set
+	 * @protected
+	 *
+	 * @example
+	 * ```typescript
+	 * builder.setNestedProperty('PtProject.Element.Fields.DbId', 'value')
+	 * ```
+	 */
+	protected setNestedProperty<P extends Path<T>>(
+		path: P,
+		value: PathValue<T, P>
+	): this & CeriosBrand<Pick<T, Extract<P extends `${infer K}.${string}` ? K : P, keyof T>>> {
+		const BuilderClass = this.constructor as new (data: any, requiredFields?: RequiredFieldsTemplate<T>) => any;
+		const keys = (path as string).split(".");
+		const newActual = this.deepClone(this._actual);
+
+		let current: any = newActual;
+		for (let i = 0; i < keys.length - 1; i++) {
+			const key = keys[i];
+			if (!(key in current) || typeof current[key] !== "object" || current[key] === null) {
+				current[key] = {};
+			} else {
+				current[key] = this.deepClone(current[key]);
+			}
+			current = current[key];
+		}
+
+		current[keys[keys.length - 1]] = value;
+
+		return new BuilderClass(
+			newActual,
+			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>
+		) as this & CeriosBrand<Pick<T, Extract<P extends `${infer K}.${string}` ? K : P, keyof T>>>;
+	}
+
+	/**
+	 * Deep clone helper for nested objects
+	 * @private
+	 */
+	private deepClone<V>(obj: V): V {
+		if (obj === null || typeof obj !== "object") {
+			return obj;
+		}
+		if (Array.isArray(obj)) {
+			return obj.map(item => this.deepClone(item)) as any;
+		}
+		const cloned: any = {};
+		const hasOwn = Object.prototype.hasOwnProperty;
+		for (const key in obj) {
+			if (hasOwn.call(obj, key)) {
+				cloned[key] = this.deepClone(obj[key]);
+			}
+		}
+		return cloned;
 	}
 
 	/**
@@ -92,12 +279,15 @@ export abstract class CeriosBuilder<T extends object> {
 		K extends { [P in keyof T]: NonNullable<T[P]> extends Array<any> ? P : never }[keyof T],
 		V extends T[K] extends Array<infer U> ? U : T[K] extends Array<infer U> | undefined ? U : never,
 	>(key: K, value: V): this & CeriosBrand<Pick<T, K>> {
-		const BuilderClass = this.constructor as new (data: any) => any;
+		const BuilderClass = this.constructor as new (data: any, requiredFields?: RequiredFieldsTemplate<T>) => any;
 		const currentArray = (this._actual[key] as Array<V> | undefined) ?? [];
-		return new BuilderClass({
-			...this._actual,
-			[key]: [...currentArray, value],
-		}) as this & CeriosBrand<Pick<T, K>>;
+		return new BuilderClass(
+			{
+				...this._actual,
+				[key]: [...currentArray, value],
+			},
+			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>
+		) as this & CeriosBrand<Pick<T, K>>;
 	}
 
 	/**
@@ -110,6 +300,38 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @throws {TypeError} If called without all required fields set (compile-time error)
 	 */
 	build(this: this & CeriosBrand<T>): T {
+		return this._actual as T;
+	}
+
+	/**
+	 * Builds the final object with runtime validation using the requiredTemplate.
+	 * This method validates that all fields in the requiredTemplate array are present.
+	 *
+	 * @returns The fully built object of type T
+	 * @throws {Error} If any required field is missing at runtime
+	 *
+	 * @example
+	 * ```typescript
+	 * class MyBuilder extends CeriosBuilder<MyType> {
+	 *   static requiredTemplate: RequiredFieldsTemplate<MyType> = [
+	 *     'path.to.field1',
+	 *     'path.to.field2'
+	 *   ];
+	 * }
+	 *
+	 * const obj = new MyBuilder({})
+	 *   .setRequiredField1("value1")
+	 *   .setRequiredField2("value2")
+	 *   .buildSafe(); // Validates that both required fields are present
+	 * ```
+	 */
+	buildSafe(): T {
+		const missing = this.validateRequiredFields();
+
+		if (missing.length > 0) {
+			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
+		}
+
 		return this._actual as T;
 	}
 
