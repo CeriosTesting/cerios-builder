@@ -28,7 +28,7 @@ type OrderDetails = {
 };
 
 type Order = {
-	Details: OrderDetails;
+	Details?: OrderDetails;
 	Items?: OrderItems;
 };
 
@@ -132,10 +132,10 @@ test("should build with runtime validation when all required fields are set", ()
 		.shippingCountry("USA")
 		.buildSafe();
 
-	expect(order.Order.Details.CustomerId).toBe("CUST-001");
-	expect(order.Order.Details.TotalAmount).toBe(299.99);
-	expect(order.Order.Details.Status).toBe("pending");
-	expect(order.Order.Details.ShippingAddress.Street).toBe("123 Main St");
+	expect(order.Order.Details?.CustomerId).toBe("CUST-001");
+	expect(order.Order.Details?.TotalAmount).toBe(299.99);
+	expect(order.Order.Details?.Status).toBe("pending");
+	expect(order.Order.Details?.ShippingAddress.Street).toBe("123 Main St");
 });
 
 test("should throw error when required fields are missing with buildSafe", () => {
@@ -198,4 +198,28 @@ test("should combine static template and dynamic required fields", () => {
 
 	const builderComplete = builder.orderNumber("ORD-001");
 	expect(() => builderComplete.buildSafe()).not.toThrow();
+});
+
+test("should allow setting optional nested properties", () => {
+	// Test that we can set properties within an optional object (Order.Items is optional)
+	const order = OrderRequestBuilder.createWithDefaults()
+		.customerId("CUST-001")
+		.totalAmount(299.99)
+		.shippingStreet("123 Main St")
+		.shippingCity("New York")
+		.shippingCountry("USA")
+		.items({
+			Items: [
+				{
+					ProductId: "PROD-001",
+					Quantity: 2,
+					Price: 149.99,
+				},
+			],
+		})
+		.buildSafe();
+
+	expect(order.Order.Items).toBeDefined();
+	expect(order.Order.Items?.Items).toHaveLength(1);
+	expect(order.Order.Items?.Items[0].ProductId).toBe("PROD-001");
 });
