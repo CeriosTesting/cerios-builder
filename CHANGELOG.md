@@ -1,5 +1,11 @@
 # @cerios/cerios-builder
 
+## 1.3.0
+
+### Minor Changes
+
+- e132d60: build() now does runtime and compile time validation. So is now the same as buildSafe which is deprecated now. Also added new build methods to have more control.
+
 ## 1.2.1
 
 ### Patch Changes
