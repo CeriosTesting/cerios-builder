@@ -683,6 +683,14 @@ class AddressBuilder extends CeriosBuilder<Address> {
         });
     }
 
+    // NEW: Create with ALL required fields set
+    static createComplete() {
+        return this.create()
+            .street("123 Default Street")
+            .city("Othertown")
+            .country("United States");
+    }
+
     street(value: string) {
         return this.setProperty('street', value);
     }
@@ -729,11 +737,13 @@ class CustomerBuilder extends CeriosBuilder<Customer> {
         return this.addToArrayProperty('notes', note);
     }
 
+    // Pattern 1: No defaults - must set all required fields
     withAddress(builderFn: (builder: AddressBuilder) => AddressBuilder & CeriosBrand<Address>) {
         const address = builderFn(AddressBuilder.create()).build();
         return this.setProperty('address', address);
     }
 
+    // Pattern 2: Partial defaults - must set remaining required fields (street)
     withAddressDefaults(
         builderFn: (
             builder: AddressBuilder & CeriosBrand<Pick<Address, "city" | "country">>
@@ -742,10 +752,21 @@ class CustomerBuilder extends CeriosBuilder<Customer> {
         const address = builderFn(AddressBuilder.createWithDefaults()).build();
         return this.setProperty('address', address);
     }
+
+    // Pattern 3: Complete defaults - callback is OPTIONAL
+    withCompleteAddress(
+        builderFn?: (
+            builder: AddressBuilder & CeriosBrand<Address>
+        ) => AddressBuilder & CeriosBrand<Address>
+    ) {
+        const builder = AddressBuilder.createComplete();
+        const address = builderFn ? builderFn(builder).build() : builder.build();
+        return this.setProperty('address', address);
+    }
 }
 
-// Usage with full address
-const customer = CustomerBuilder.create()
+// Pattern 1: No defaults - must set all required fields
+const customer1 = CustomerBuilder.create()
     .id('CUST-001')
     .name('Alice Johnson')
     .withAddress(addr => addr
@@ -755,37 +776,87 @@ const customer = CustomerBuilder.create()
         .zipCode('10001')
     )
     .addNote("VIP customer")
-    .addNote("Prefers email contact")
     .phoneNumber('+1-555-0123')
     .build();
 
-// Usage with defaults
-const customerWithDefaults = CustomerBuilder.create()
+// Pattern 2: Partial defaults - city and country already set, must provide street
+const customer2 = CustomerBuilder.create()
     .id('CUST-002')
     .name('Bob Smith')
     .withAddressDefaults(addr => addr.street('456 Elm St'))
     .addNote("New customer")
     .build();
 
-console.log(customerWithDefaults);
+console.log(customer2);
 // Output: { id: 'CUST-002', name: 'Bob Smith', address: { street: '456 Elm St', city: 'Othertown', country: 'United States' }, notes: ['New customer'] }
+
+// Pattern 3a: Complete defaults - no callback needed, use all defaults
+const customer3 = CustomerBuilder.create()
+    .id('CUST-003')
+    .name('Charlie Davis')
+    .withCompleteAddress() // ✅ No callback needed - all required fields already set!
+    .build();
+
+console.log(customer3);
+// Output: { id: 'CUST-003', name: 'Charlie Davis', address: { street: '123 Default Street', city: 'Othertown', country: 'United States' } }
+
+// Pattern 3b: Complete defaults - optional callback to modify/add optional fields
+const customer4 = CustomerBuilder.create()
+    .id('CUST-004')
+    .name('Diana Evans')
+    .withCompleteAddress(addr => addr
+        .zipCode('90210')  // Only modify/add optional fields if needed
+    )
+    .build();
+
+console.log(customer4);
+// Output: { id: 'CUST-004', name: 'Diana Evans', address: { street: '123 Default Street', city: 'Othertown', country: 'United States', zipCode: '90210' } }
+
+// Pattern 3c: Complete defaults - optional callback to override any field
+const customer5 = CustomerBuilder.create()
+    .id('CUST-005')
+    .name('Eve Foster')
+    .withCompleteAddress(addr => addr
+        .street('789 Custom Ave')  // Override the default street
+        .zipCode('10001')
+    )
+    .addNote("Premium customer")
+    .build();
+
+console.log(customer5);
+// Output: { id: 'CUST-005', name: 'Eve Foster', address: { street: '789 Custom Ave', city: 'Othertown', country: 'United States', zipCode: '10001' }, notes: ['Premium customer'] }
 ```
 
-### Partial Building for Flexibility
+#### Using `createWithDefaults()` with Nested Builders
 
-Sometimes you need to build incomplete objects:
+The key pattern is:
+1. **`createComplete()`**: Returns a builder with **all required fields already set**
+2. **Optional callback parameter**: The callback parameter is typed as `optional` (`?`), so you don't have to provide it
+3. **Already branded**: Since all required fields are set, the builder is already branded with `CeriosBrand<Address>`, so you can call `build()` immediately
+
+This pattern is perfect when:
+- You have sensible defaults for all required fields
+- Most users will use the defaults
+- Some users may want to customize optional fields or override defaults
+- You want a clean API without forcing users to write empty callbacks
+
+**Comparison of the three patterns:**
 
 ```typescript
-// Build partial objects when not all data is available
-const partialUser = UserBuilder.create()
-    .name("Unknown User")
-    .addRole("guest")
-    .buildPartial(); // Returns Partial<User>
+// Pattern 1: Must set ALL required fields
+.withAddress(addr => addr.street('...').city('...').country('...'))
 
-// This is useful for:
-// - Progressive form filling
-// - API responses with optional fields
-// - Template objects
+// Pattern 2: Must set REMAINING required fields (street)
+.withAddressDefaults(addr => addr.street('...'))
+
+// Pattern 3a: NO callback needed - all defaults
+.withCompleteAddress()
+
+// Pattern 3b: OPTIONAL callback - only if you want to customize
+.withCompleteAddress(addr => addr.zipCode('...'))
+
+// Pattern 3c: OPTIONAL callback - can override any field
+.withCompleteAddress(addr => addr.street('...').zipCode('...'))
 ```
 
 ## 🧪 Testing Integration
@@ -1143,13 +1214,3 @@ console.log(partial); // { name: 'Incomplete User' }
        'Details.InvalidField', // ❌ TypeScript error
    ];
    ```
-
-## 📄 License
-
-MIT © [Cerios](LICENSE)
-
-## 🔗 Links
-
-- [GitHub Repository](https://github.com/CeriosTesting/cerios-builder)
-- [Issues](https://github.com/CeriosTesting/cerios-builder/issues)
-- [NPM Package](https://www.npmjs.com/package/@cerios/cerios-builder)
