@@ -1,5 +1,11 @@
 # @cerios/cerios-builder
 
+## 1.2.0
+
+### Minor Changes
+
+- 7aaa781: Added support for runtime deeply nested properties validation. Typescript performance updates
+
 ## 1.1.0
 
 ### Minor Changes
