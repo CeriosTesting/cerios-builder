@@ -1,5 +1,11 @@
 # @cerios/cerios-builder
 
+## 1.4.0
+
+### Minor Changes
+
+- d6735eb: added building immutable objects
+
 ## 1.3.0
 
 ### Minor Changes
