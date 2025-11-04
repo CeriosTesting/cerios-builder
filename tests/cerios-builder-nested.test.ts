@@ -12,15 +12,16 @@ type Customer = {
 	name: string;
 	address: Address;
 	phoneNumber?: string;
+	addressHistory?: Address[];
 };
 
 class AddressBuilder extends CeriosBuilder<Address> {
-	private constructor(data: Partial<Address>) {
-		super(data);
-	}
-
 	static create() {
 		return new AddressBuilder({});
+	}
+
+	static createWithDefaults() {
+		return this.create().city("Othertown").country("United States");
 	}
 
 	street(value: string) {
@@ -46,10 +47,6 @@ class AddressBuilder extends CeriosBuilder<Address> {
 }
 
 class CustomerBuilder extends CeriosBuilder<Customer> {
-	private constructor(data: Partial<Customer>) {
-		super(data);
-	}
-
 	static create() {
 		return new CustomerBuilder({});
 	}
@@ -75,6 +72,21 @@ class CustomerBuilder extends CeriosBuilder<Customer> {
 		const address = builderFn(AddressBuilder.create()).build();
 		return this.setProperty("address", address);
 	}
+
+	withAddressDefaults(
+		builderFn: (
+			builder: AddressBuilder & CeriosBrand<Pick<Address, "city" | "country">>
+		) => AddressBuilder & CeriosBrand<Address>
+	) {
+		const address = builderFn(AddressBuilder.createWithDefaults()).build();
+		return this.setProperty("address", address);
+	}
+
+	addAddressHistory(builderFn: (builder: AddressBuilder) => AddressBuilder & CeriosBrand<Address>) {
+		const address = builderFn(AddressBuilder.create()).build();
+		const currentHistory = this._actual.addressHistory || [];
+		return this.setProperty("addressHistory", [...currentHistory, address]);
+	}
 }
 
 describe("Cerios Builder Nested", () => {
@@ -96,6 +108,56 @@ describe("Cerios Builder Nested", () => {
 				zipCode: "12345",
 			},
 			phoneNumber: "555-1234",
+		});
+	});
+
+	test("should build customer with default address", () => {
+		const customer = CustomerBuilder.create()
+			.id("456")
+			.name("Jane Smith")
+			.withAddressDefaults(address => address.street("456 Elm St"))
+			.build();
+
+		expect(customer).toEqual({
+			id: "456",
+			name: "Jane Smith",
+			address: {
+				street: "456 Elm St",
+				city: "Othertown",
+				country: "United States",
+			},
+		});
+	});
+
+	test("should build customer with address history", () => {
+		const customer = CustomerBuilder.create()
+			.id("789")
+			.name("Alice Johnson")
+			.withAddress(address => address.street("789 Oak St").city("Oldtown").country("USA"))
+			.addAddressHistory(address => address.street("101 Pine St").city("Newtown").country("USA"))
+			.addAddressHistory(address => address.street("202 Maple St").city("Sometown").country("USA"))
+			.build();
+
+		expect(customer).toEqual({
+			id: "789",
+			name: "Alice Johnson",
+			address: {
+				street: "789 Oak St",
+				city: "Oldtown",
+				country: "USA",
+			},
+			addressHistory: [
+				{
+					street: "101 Pine St",
+					city: "Newtown",
+					country: "USA",
+				},
+				{
+					street: "202 Maple St",
+					city: "Sometown",
+					country: "USA",
+				},
+			],
 		});
 	});
 });
