@@ -7,6 +7,7 @@ A powerful TypeScript builder pattern library that provides **compile-time type 
 - **Type-Safe Building**: Compile-time validation ensures all required properties are set
 - **Nested Properties Support**: Build deeply nested objects with dot-notation paths
 - **Flexible Runtime Validation**: Choose between compile-time, runtime, or both validations
+- **Immutability Options**: Create frozen or sealed objects with shallow or deep variants
 - **Dynamic Required Fields**: Add required fields at runtime based on your business logic
 - **Method Chaining**: Fluent API for readable object construction
 - **Partial Building**: Build incomplete objects when needed
@@ -86,6 +87,10 @@ const user = UserBuilder.create()
 | **Runtime Only** | `buildWithoutCompileTimeValidation()` | Build with runtime validation only |
 | **No Validation** | `buildUnsafe()` | Build without any validation |
 | **Partial Build** | `buildPartial()` | Build incomplete objects |
+| **Shallow Freeze** | `buildFrozen()` | Create immutable object (top-level only) |
+| **Deep Freeze** | `buildDeepFrozen()` | Create fully immutable object tree |
+| **Shallow Seal** | `buildSealed()` | Lock structure, allow modifications |
+| **Deep Seal** | `buildDeepSealed()` | Lock all structures, allow modifications |
 
 ## 🔧 Basic Usage
 
@@ -1176,7 +1181,251 @@ console.log(partial); // { name: 'Incomplete User' }
 | `buildUnsafe()` | ❌ | ❌ | Fastest | Lowest | Trusted scenarios only |
 | `buildPartial()` | ❌ | ❌ | Fast | N/A | Incomplete objects |
 
-## 💡 Best Practices
+## � Immutable Build Methods
+
+In addition to the standard build methods, `@cerios/cerios-builder` provides **frozen** and **sealed** variants that create immutable objects. These methods help prevent accidental mutations and enforce data integrity.
+
+### Understanding Freeze vs Seal
+
+Before diving into the methods, it's important to understand the difference between **frozen** and **sealed** objects:
+
+| Feature | `Object.freeze()` | `Object.seal()` |
+|---------|------------------|-----------------|
+| **Add properties** | ❌ Prevented | ❌ Prevented |
+| **Delete properties** | ❌ Prevented | ❌ Prevented |
+| **Modify properties** | ❌ Prevented | ✅ Allowed |
+| **Use case** | Complete immutability | Prevent structural changes |
+
+**Shallow vs Deep:**
+- **Shallow**: Only applies to the top-level object
+- **Deep**: Recursively applies to all nested objects and arrays
+
+### `buildFrozen()` - Shallow Freeze
+
+Creates a **shallowly frozen** object where top-level properties cannot be modified, but nested objects remain mutable.
+
+```typescript
+const user = UserBuilder.create()
+    .id('123')
+    .name('John')
+    .email('john@example.com')
+    .buildFrozen(); // Returns Readonly<User>
+
+// ❌ Error: Cannot modify top-level properties
+user.name = 'Jane'; // TypeError in strict mode
+
+// ⚠️ Nested objects can still be modified (shallow freeze)
+user.address.city = 'New York'; // Works if address is an object
+```
+
+**Use when:**
+- You want to prevent accidental top-level modifications
+- Nested objects are intentionally mutable
+- Performance is a concern (shallow operations are faster)
+
+### `buildDeepFrozen()` - Deep Freeze
+
+Creates a **deeply frozen** object where all properties at all levels are immutable.
+
+```typescript
+const user = UserBuilder.create()
+    .id('123')
+    .name('John')
+    .email('john@example.com')
+    .setNestedProperty('address.city', 'Boston')
+    .buildDeepFrozen(); // Returns DeepReadonly<User>
+
+// ❌ Error: Cannot modify top-level properties
+user.name = 'Jane'; // TypeError
+
+// ❌ Error: Cannot modify nested properties
+user.address.city = 'New York'; // TypeError
+
+// ❌ Error: Cannot modify arrays
+user.tags.push('new tag'); // TypeError
+```
+
+**Use when:**
+- You need complete immutability
+- Building configuration objects
+- Creating frozen state snapshots
+- Working with Redux/immutable state patterns
+- Passing objects to untrusted code
+
+### `buildSealed()` - Shallow Seal
+
+Creates a **shallowly sealed** object where properties cannot be added or removed, but existing properties can be modified.
+
+```typescript
+const user = UserBuilder.create()
+    .id('123')
+    .name('John')
+    .email('john@example.com')
+    .buildSealed(); // Returns T
+
+// ✅ Can modify existing properties
+user.name = 'Jane'; // Works!
+
+// ❌ Cannot add new properties
+user.newProp = 'value'; // TypeError in strict mode
+
+// ❌ Cannot delete properties
+delete user.email; // TypeError in strict mode
+
+// ⚠️ Can modify nested objects (shallow seal)
+user.address.city = 'New York'; // Works if address is an object
+```
+
+**Use when:**
+- You want to lock the object structure
+- Properties should be modifiable
+- Preventing accidental property additions
+- Building objects with fixed schemas
+
+### `buildDeepSealed()` - Deep Seal
+
+Creates a **deeply sealed** object where no properties can be added or removed at any level, but all properties can still be modified.
+
+```typescript
+const user = UserBuilder.create()
+    .id('123')
+    .name('John')
+    .email('john@example.com')
+    .setNestedProperty('address.city', 'Boston')
+    .buildDeepSealed(); // Returns T
+
+// ✅ Can modify properties at all levels
+user.name = 'Jane'; // Works
+user.address.city = 'New York'; // Works
+
+// ❌ Cannot add properties at any level
+user.newProp = 'value'; // TypeError
+user.address.newProp = 'value'; // TypeError
+
+// ❌ Cannot add array elements
+user.tags.push('new tag'); // TypeError
+
+// ✅ Can modify array elements
+user.tags[0] = 'updated tag'; // Works
+```
+
+**Use when:**
+- You want to lock all object structures
+- Values should be modifiable
+- Preventing structural changes throughout the tree
+- Building objects with deeply fixed schemas
+
+### Immutability Comparison
+
+| Method | Modify Top-Level | Modify Nested | Add Properties | Delete Properties | Performance |
+|--------|-----------------|---------------|----------------|-------------------|-------------|
+| `buildFrozen()` | ❌ | ✅ | ❌ | ❌ | Fast |
+| `buildDeepFrozen()` | ❌ | ❌ | ❌ | ❌ | Slower |
+| `buildSealed()` | ✅ | ✅ | ❌ | ❌ | Fast |
+| `buildDeepSealed()` | ✅ | ✅ | ❌ | ❌ | Slower |
+
+### Immutability Examples
+
+#### Example 1: Configuration Object
+
+```typescript
+class ConfigBuilder extends CeriosBuilder<AppConfig> {
+    static requiredTemplate: RequiredFieldsTemplate<AppConfig> = [
+        'apiUrl',
+        'timeout',
+        'features.authentication'
+    ];
+
+    static create() {
+        return new ConfigBuilder({});
+    }
+
+    // ... builder methods
+}
+
+const config = ConfigBuilder.create()
+    .setApiUrl('https://api.example.com')
+    .setTimeout(5000)
+    .setNestedProperty('features.authentication', true)
+    .buildDeepFrozen(); // Configuration should never change
+
+// ❌ Configuration is completely frozen
+config.timeout = 10000; // TypeError
+config.features.authentication = false; // TypeError
+```
+
+#### Example 2: Mutable Data with Fixed Structure
+
+```typescript
+class UserStateBuilder extends CeriosBuilder<UserState> {
+    static create() {
+        return new UserStateBuilder({});
+    }
+
+    // ... builder methods
+}
+
+const userState = UserStateBuilder.create()
+    .setUserId('123')
+    .setStatus('active')
+    .setLastSeen(new Date())
+    .buildDeepSealed(); // Structure is fixed, but values can change
+
+// ✅ Can update state values
+userState.status = 'inactive';
+userState.lastSeen = new Date();
+
+// ❌ Cannot add new properties
+userState.newField = 'value'; // TypeError
+```
+
+#### Example 3: Snapshot for Time Travel Debugging
+
+```typescript
+class AppStateBuilder extends CeriosBuilder<AppState> {
+    // ... methods
+}
+
+const snapshots: DeepReadonly<AppState>[] = [];
+
+// Capture immutable snapshots
+snapshots.push(
+    AppStateBuilder.create()
+        .setCurrentUser(user)
+        .setOpenDocuments(documents)
+        .buildDeepFrozen()
+);
+
+// Snapshots cannot be modified
+snapshots[0].currentUser.name = 'Changed'; // TypeError
+```
+
+### When to Use Immutability
+
+**Use `buildDeepFrozen()`:**
+- ✅ Configuration objects
+- ✅ State snapshots
+- ✅ Event data
+- ✅ Cached results
+- ✅ Objects passed to untrusted code
+
+**Use `buildDeepSealed()`:**
+- ✅ State objects with fixed schemas
+- ✅ Form data models
+- ✅ Database records with fixed columns
+- ✅ API response models
+
+**Use shallow variants (`buildFrozen()`, `buildSealed()`):**
+- ✅ When nested objects need flexibility
+- ✅ Performance-critical scenarios
+- ✅ Intentional selective mutability
+
+**Avoid immutable builds when:**
+- ❌ Building frequently updated objects
+- ❌ Working with large data structures (performance cost)
+- ❌ Objects that need frequent transformations
+
+## �💡 Best Practices
 
 1. **Use `setNestedProperty()` for deep structures**: Instead of building nested objects separately, use dot notation for better type safety and cleaner code.
 
@@ -1187,6 +1436,8 @@ console.log(partial); // { name: 'Incomplete User' }
    - Use `buildWithoutRuntimeValidation()` for performance
    - Use `buildWithoutCompileTimeValidation()` for external data
    - Use `buildUnsafe()` only when absolutely necessary
+   - Use `buildDeepFrozen()` for configuration and immutable data
+   - Use `buildDeepSealed()` when you need fixed schemas with mutable values
 
 4. **Use `setRequiredFields()` for conditional requirements**: When requirements change based on context (e.g., new vs existing records), use dynamic required fields.
 

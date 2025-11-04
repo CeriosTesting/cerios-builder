@@ -46,6 +46,34 @@ type PathValue<T, P> = P extends keyof T
 export type RequiredFieldsTemplate<T> = ReadonlyArray<Path<T>>;
 
 /**
+ * Recursively makes all properties readonly for deep immutability.
+ * Handles arrays, objects, and primitive types.
+ *
+ * @template T - The type to make deeply readonly
+ */
+export type DeepReadonly<T> = T extends (infer R)[]
+	? DeepReadonlyArray<R>
+	: T extends (...args: any[]) => any
+		? T
+		: T extends object
+			? DeepReadonlyObject<T>
+			: T;
+
+/**
+ * Helper type for deep readonly arrays
+ * @internal
+ */
+interface DeepReadonlyArray<T> extends ReadonlyArray<DeepReadonly<T>> {}
+
+/**
+ * Helper type for deep readonly objects
+ * @internal
+ */
+type DeepReadonlyObject<T> = {
+	readonly [P in keyof T]: DeepReadonly<T[P]>;
+};
+
+/**
  * Cache the root key extraction to avoid repeated computation
  * Handles optional properties by ensuring the key is valid for T
  * @internal
@@ -57,6 +85,46 @@ type RootKey<P extends string, T = any> = P extends `${infer K}.${string}`
 	: P extends keyof T
 		? P
 		: never;
+
+/**
+ * Recursively freezes an object and all its nested properties.
+ * @param obj - The object to freeze
+ * @returns The frozen object
+ * @internal
+ */
+function deepFreeze<T>(obj: T): T {
+	// Retrieve the property names defined on obj
+	Object.getOwnPropertyNames(obj).forEach(prop => {
+		const value = (obj as any)[prop];
+
+		// Freeze properties before freezing self
+		if (value !== null && (typeof value === "object" || typeof value === "function")) {
+			deepFreeze(value);
+		}
+	});
+
+	return Object.freeze(obj);
+}
+
+/**
+ * Recursively seals an object and all its nested properties.
+ * @param obj - The object to seal
+ * @returns The sealed object
+ * @internal
+ */
+function deepSeal<T>(obj: T): T {
+	// Retrieve the property names defined on obj
+	Object.getOwnPropertyNames(obj).forEach(prop => {
+		const value = (obj as any)[prop];
+
+		// Seal properties before sealing self
+		if (value !== null && (typeof value === "object" || typeof value === "function")) {
+			deepSeal(value);
+		}
+	});
+
+	return Object.seal(obj);
+}
 
 /**
  * Abstract base class for creating type-safe builders with automatic property setters and compile-time validation of required fields.
@@ -391,5 +459,88 @@ export abstract class CeriosBuilder<T extends object> {
 	 */
 	buildSafe(): T {
 		return this.buildWithoutCompileTimeValidation();
+	}
+
+	/**
+	 * Builds and freezes the final object with both compile-time and runtime validation.
+	 * The returned object is shallowly frozen - top-level properties cannot be modified,
+	 * but nested objects remain mutable.
+	 *
+	 * - Compile-time: TypeScript enforces all required properties are set
+	 * - Runtime: Validates all fields in the requiredTemplate and applies Object.freeze()
+	 *
+	 * @returns The frozen object of type Readonly<T>
+	 * @throws {Error} If any required field is missing at runtime
+	 */
+	buildFrozen(this: this & CeriosBrand<T>): Readonly<T> {
+		const missing = this.validateRequiredFields();
+
+		if (missing.length > 0) {
+			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
+		}
+
+		return Object.freeze(this._actual as T);
+	}
+
+	/**
+	 * Builds and deeply freezes the final object with both compile-time and runtime validation.
+	 * The returned object is recursively frozen - all nested objects and arrays are also frozen.
+	 *
+	 * - Compile-time: TypeScript enforces all required properties are set
+	 * - Runtime: Validates all fields in the requiredTemplate and recursively applies Object.freeze()
+	 *
+	 * @returns The deeply frozen object of type DeepReadonly<T>
+	 * @throws {Error} If any required field is missing at runtime
+	 */
+	buildDeepFrozen(this: this & CeriosBrand<T>): DeepReadonly<T> {
+		const missing = this.validateRequiredFields();
+
+		if (missing.length > 0) {
+			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
+		}
+
+		return deepFreeze(this._actual as T) as DeepReadonly<T>;
+	}
+
+	/**
+	 * Builds and seals the final object with both compile-time and runtime validation.
+	 * The returned object is shallowly sealed - properties cannot be added or removed,
+	 * but existing properties can still be modified. Nested objects remain unsealed.
+	 *
+	 * - Compile-time: TypeScript enforces all required properties are set
+	 * - Runtime: Validates all fields in the requiredTemplate and applies Object.seal()
+	 *
+	 * @returns The sealed object of type T
+	 * @throws {Error} If any required field is missing at runtime
+	 */
+	buildSealed(this: this & CeriosBrand<T>): T {
+		const missing = this.validateRequiredFields();
+
+		if (missing.length > 0) {
+			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
+		}
+
+		return Object.seal(this._actual as T);
+	}
+
+	/**
+	 * Builds and deeply seals the final object with both compile-time and runtime validation.
+	 * The returned object is recursively sealed - properties cannot be added or removed at any level,
+	 * but existing properties can still be modified.
+	 *
+	 * - Compile-time: TypeScript enforces all required properties are set
+	 * - Runtime: Validates all fields in the requiredTemplate and recursively applies Object.seal()
+	 *
+	 * @returns The deeply sealed object of type T
+	 * @throws {Error} If any required field is missing at runtime
+	 */
+	buildDeepSealed(this: this & CeriosBrand<T>): T {
+		const missing = this.validateRequiredFields();
+
+		if (missing.length > 0) {
+			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
+		}
+
+		return deepSeal(this._actual as T);
 	}
 }
