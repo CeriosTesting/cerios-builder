@@ -1,4 +1,4 @@
-import { CeriosBrand, CeriosBuilder } from "../src/cerios-builder";
+import { BuilderType, CeriosBrand, CeriosBuilder } from "../src/cerios-builder";
 
 type Address = {
 	street: string;
@@ -75,7 +75,7 @@ class CustomerBuilder extends CeriosBuilder<Customer> {
 
 	withAddressDefaults(
 		builderFn: (
-			builder: AddressBuilder & CeriosBrand<Pick<Address, "city" | "country">>
+			builder: BuilderType<ReturnType<typeof AddressBuilder.createWithDefaults>>
 		) => AddressBuilder & CeriosBrand<Address>
 	) {
 		const address = builderFn(AddressBuilder.createWithDefaults()).build();

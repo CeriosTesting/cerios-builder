@@ -601,6 +601,206 @@ try {
 }
 ```
 
+#### 3. Constructor Parameter (For Instance-Specific Requirements)
+
+```typescript
+class OrderBuilder extends CeriosBuilder<Order> {
+    // Base template with common required fields
+    static requiredTemplate: RequiredFieldsTemplate<Order> = [
+        'Details.CustomerId',
+        'Details.TotalAmount',
+    ];
+
+    // Constructor accepts additional required fields
+    constructor(
+        initial: Partial<Order>,
+        additionalRequiredFields?: RequiredFieldsTemplate<Order>
+    ) {
+        super(initial, additionalRequiredFields);
+    }
+
+    static create() {
+        return new OrderBuilder({});
+    }
+
+    // Factory method for orders with shipping requirements
+    static createWithShipping() {
+        return new OrderBuilder({}, [
+            'Details.ShippingAddress.Street',
+            'Details.ShippingAddress.City',
+            'Details.ShippingAddress.Country',
+        ]);
+    }
+
+    customerId(value: string) {
+        return this.setNestedProperty('Details.CustomerId', value);
+    }
+
+    totalAmount(value: number) {
+        return this.setNestedProperty('Details.TotalAmount', value);
+    }
+
+    shippingStreet(value: string) {
+        return this.setNestedProperty('Details.ShippingAddress.Street', value);
+    }
+
+    shippingCity(value: string) {
+        return this.setNestedProperty('Details.ShippingAddress.City', value);
+    }
+
+    shippingCountry(value: string) {
+        return this.setNestedProperty('Details.ShippingAddress.Country', value);
+    }
+}
+
+// Order without shipping (only validates base required fields)
+const digitalOrder = OrderBuilder.create()
+    .customerId('CUST-001')
+    .totalAmount(49.99)
+    .buildWithoutCompileTimeValidation(); // ✅ Valid - shipping not required
+
+// Order with shipping (validates base + shipping fields)
+const physicalOrder = OrderBuilder.createWithShipping()
+    .customerId('CUST-002')
+    .totalAmount(99.99)
+    .shippingStreet('123 Main St')
+    .shippingCity('New York')
+    .shippingCountry('USA')
+    .buildWithoutCompileTimeValidation(); // ✅ All required fields validated
+
+// ❌ This will fail - missing shipping address
+try {
+    const invalidOrder = OrderBuilder.createWithShipping()
+        .customerId('CUST-003')
+        .totalAmount(75.00)
+        .buildWithoutCompileTimeValidation(); // Missing shipping fields
+} catch (error) {
+    console.error(error.message);
+    // "Missing required fields: Details.ShippingAddress.Street, ..."
+}
+```
+
+#### 4. Hybrid Approach (Static + Dynamic Combined)
+
+```typescript
+class OrderBuilder extends CeriosBuilder<Order> {
+    // Static template for always-required fields
+    static requiredTemplate: RequiredFieldsTemplate<Order> = [
+        'Details.CustomerId',
+        'Details.TotalAmount',
+    ];
+
+    static create() {
+        return new OrderBuilder({});
+    }
+
+    // Factory with static template + additional dynamic fields
+    static createPriorityOrder() {
+        return this.create()
+            .setRequiredFields([
+                'Details.ShippingAddress.Street',
+                'Details.ShippingAddress.City',
+                'Details.ShippingAddress.Country',
+                'Details.ShippingAddress.PostalCode',
+                'Details.Priority', // Extra field for priority orders
+            ]);
+    }
+
+    // Another factory combining different requirements
+    static createGiftOrder() {
+        return this.create()
+            .setRequiredFields([
+                'Details.ShippingAddress.Street',
+                'Details.ShippingAddress.City',
+                'Details.ShippingAddress.Country',
+                'Details.GiftMessage', // Required for gift orders
+                'Details.RecipientName', // Required for gift orders
+            ]);
+    }
+
+    customerId(value: string) {
+        return this.setNestedProperty('Details.CustomerId', value);
+    }
+
+    totalAmount(value: number) {
+        return this.setNestedProperty('Details.TotalAmount', value);
+    }
+
+    priority(value: string) {
+        return this.setNestedProperty('Details.Priority', value);
+    }
+
+    giftMessage(value: string) {
+        return this.setNestedProperty('Details.GiftMessage', value);
+    }
+
+    recipientName(value: string) {
+        return this.setNestedProperty('Details.RecipientName', value);
+    }
+
+    shippingStreet(value: string) {
+        return this.setNestedProperty('Details.ShippingAddress.Street', value);
+    }
+
+    shippingCity(value: string) {
+        return this.setNestedProperty('Details.ShippingAddress.City', value);
+    }
+
+    shippingCountry(value: string) {
+        return this.setNestedProperty('Details.ShippingAddress.Country', value);
+    }
+
+    shippingPostalCode(value: string) {
+        return this.setNestedProperty('Details.ShippingAddress.PostalCode', value);
+    }
+}
+
+// Priority order: requires shipping + priority + base fields
+const priorityOrder = OrderBuilder.createPriorityOrder()
+    .customerId('CUST-001')
+    .totalAmount(299.99)
+    .priority('express')
+    .shippingStreet('123 Main St')
+    .shippingCity('New York')
+    .shippingCountry('USA')
+    .shippingPostalCode('10001')
+    .buildWithoutCompileTimeValidation(); // ✅ All priority order fields validated
+
+// Gift order: requires shipping + gift fields + base fields
+const giftOrder = OrderBuilder.createGiftOrder()
+    .customerId('CUST-002')
+    .totalAmount(149.99)
+    .giftMessage('Happy Birthday!')
+    .recipientName('John Doe')
+    .shippingStreet('456 Oak Ave')
+    .shippingCity('Boston')
+    .shippingCountry('USA')
+    .buildWithoutCompileTimeValidation(); // ✅ All gift order fields validated
+
+// ❌ This will fail - missing gift-specific fields
+try {
+    const invalidGiftOrder = OrderBuilder.createGiftOrder()
+        .customerId('CUST-003')
+        .totalAmount(99.99)
+        .shippingStreet('789 Elm St')
+        .shippingCity('Chicago')
+        .shippingCountry('USA')
+        .buildWithoutCompileTimeValidation(); // Missing GiftMessage and RecipientName
+} catch (error) {
+    console.error(error.message);
+    // "Missing required fields: Details.GiftMessage, Details.RecipientName"
+}
+```
+
+**Summary of the Four Approaches:**
+
+| Approach | When to Use | Flexibility | Complexity |
+|----------|-------------|-------------|------------|
+| **1. Static Template** | Fixed requirements that never change | Low | Low |
+| **2. Dynamic via `setRequiredFields()`** | Requirements change based on runtime conditions | High | Medium |
+| **3. Constructor Parameter** | Requirements known at builder creation time | Medium | Medium |
+| **4. Hybrid (Static + Dynamic)** | Common base requirements + context-specific additions | High | Higher |
+
 ### Building Test Data
 
 Perfect for creating test fixtures with sensible defaults:
@@ -769,7 +969,40 @@ class CustomerBuilder extends CeriosBuilder<Customer> {
         return this.setProperty('address', address);
     }
 }
+```
 
+#### Using `BuilderType<>` for Simpler Type Signatures
+
+When accepting builders with defaults already set, you can use the `BuilderType<>` helper to avoid manually specifying which fields are set:
+
+```typescript
+import { BuilderType, CeriosBuilder, CeriosBrand } from '@cerios/cerios-builder';
+
+class CustomerBuilder extends CeriosBuilder<Customer> {
+    // Instead of manually picking fields:
+    // withAddressDefaults(
+    //     builderFn: (builder: AddressBuilder & CeriosBrand<Pick<Address, "city" | "country">>) => ...
+    // ) { ... }
+
+    // Use BuilderType with ReturnType:
+    withAddressDefaults(
+        builderFn: (builder: BuilderType<ReturnType<typeof AddressBuilder.createWithDefaults>>) => AddressBuilder & CeriosBrand<Address>
+    ) {
+        const address = builderFn(AddressBuilder.createWithDefaults()).build();
+        return this.setProperty('address', address);
+    }
+}
+```
+
+**Benefits:**
+- ✅ No need to manually track which fields are set with `Pick<>`
+- ✅ Automatically infers the correct type from your factory method
+- ✅ Changes to `createWithDefaults()` automatically update the type
+- ✅ Much cleaner and more maintainable
+
+**Usage examples:**
+
+```typescript
 // Pattern 1: No defaults - must set all required fields
 const customer1 = CustomerBuilder.create()
     .id('CUST-001')
