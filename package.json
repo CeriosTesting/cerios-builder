@@ -1,6 +1,6 @@
 {
 	"name": "@cerios/cerios-builder",
-	"version": "1.4.0",
+	"version": "1.4.1",
 	"author": "Ronald Veth - Cerios",
 	"description": "A TypeScript builder pattern library providing compile-time type safety for object construction with method chaining and required field validation",
 	"license": "MIT",

@@ -1,5 +1,11 @@
 # @cerios/cerios-builder
 
+## 1.4.1
+
+### Patch Changes
+
+- 845e5a7: extra helper BuilderType for simplified builder type extraction
+
 ## 1.4.0
 
 ### Minor Changes

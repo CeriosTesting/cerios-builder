@@ -15,6 +15,26 @@ declare const __brand: unique symbol;
 export type CeriosBrand<T> = { [__brand]: T };
 
 /**
+ * Helper type to extract the builder type from a builder instance.
+ * This is useful when you want to accept a builder with some fields already set
+ * without manually specifying which fields are set.
+ *
+ * @template B - A builder instance type
+ *
+ * @example
+ * ```typescript
+ * // Instead of:
+ * function withAddress(
+ *   builder: AddressBuilder & CeriosBrand<Pick<Address, "city" | "country">>
+ * ) { ... }
+ *
+ * // You can write:
+ * function withAddress(builder: BuilderType<ReturnType<typeof AddressBuilder.createWithDefaults>>) { ... }
+ * ```
+ */
+export type BuilderType<B> = B;
+
+/**
  * Helper type to represent a path through an object structure
  * Handles optional properties by unwrapping them with NonNullable
  */
