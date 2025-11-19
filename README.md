@@ -1698,3 +1698,61 @@ snapshots[0].currentUser.name = 'Changed'; // TypeError
        'Details.InvalidField', // ❌ TypeScript error
    ];
    ```
+## 🧩 CeriosClassBuilder (Work in Progress)
+
+`CeriosClassBuilder` is an experimental builder base class for **TypeScript classes** (not just types/interfaces). It provides the same fluent, type-safe builder API as `CeriosBuilder`, but returns actual class instances—preserving methods, decorators, and prototype chains.
+
+### Key Features
+
+- **Class Instance Output**: Returns real class instances, not plain objects.
+- **Decorator Support**: Works with classes using decorators (e.g., for serialization).
+- **Type-Safe Chaining**: Same compile-time safety and method chaining as `CeriosBuilder`.
+- **Nested Property Support**: Supports `setNestedProperty` for deep class graphs.
+
+### Example
+
+```typescript
+import { CeriosClassBuilder } from '@cerios/cerios-builder';
+
+class Person {
+    name!: string;
+    age!: number;
+    greet() { return `Hello, I'm ${this.name}`; }
+}
+
+class PersonBuilder extends CeriosClassBuilder<Person> {
+    constructor(classConstructor: ClassConstructor<Person> = Person, data: Partial<Person> = {}) {
+		super(classConstructor, data);
+	}
+
+    static create() {
+        return new PersonBuilder(Person);
+    }
+    name(value: string) { return this.setProperty('name', value); }
+    age(value: number) { return this.setProperty('age', value); }
+}
+
+const person = PersonBuilder.create().name('Alice').age(30).build();
+console.log(person.greet()); // "Hello, I'm Alice"
+console.log(person instanceof Person); // true
+```
+
+### Status
+
+- ⚠️ **Work in progress:** API and features may change.
+- Feature parity with `CeriosBuilder` is the goal.
+- Please report issues or suggestions!
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 📄 License
+
+MIT © Ronald Veth - Cerios
+
+## 🔗 Links
+
+- [GitHub Repository](https://github.com/CeriosTesting/cerios-builder)
+- [Issue Tracker](https://github.com/CeriosTesting/cerios-builder/issues)
+- [NPM Package](https://www.npmjs.com/package/@cerios/cerios-builder)
