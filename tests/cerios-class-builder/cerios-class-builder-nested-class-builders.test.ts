@@ -1,23 +1,28 @@
-import { BuilderType, CeriosBrand, CeriosBuilder } from "../src/cerios-builder";
+import { CeriosClassBrand, CeriosClassBuilder, ClassConstructor } from "../../src/cerios-class-builder";
+import { BuilderType } from "../../src/types";
 
-type Address = {
-	street: string;
-	city: string;
-	country: string;
+class Address {
+	street!: string;
+	city!: string;
+	country!: string;
 	zipCode?: string;
-};
+}
 
-type Customer = {
-	id: string;
-	name: string;
-	address: Address;
+class Customer {
+	id!: string;
+	name!: string;
+	address!: Address;
 	phoneNumber?: string;
 	addressHistory?: Address[];
-};
+}
 
-class AddressBuilder extends CeriosBuilder<Address> {
+class AddressBuilder extends CeriosClassBuilder<Address> {
+	constructor(classConstructor: ClassConstructor<Address> = Address, data: Partial<Address> = {}) {
+		super(classConstructor, data);
+	}
+
 	static create() {
-		return new AddressBuilder({});
+		return new AddressBuilder();
 	}
 
 	static createWithDefaults() {
@@ -46,9 +51,13 @@ class AddressBuilder extends CeriosBuilder<Address> {
 	}
 }
 
-class CustomerBuilder extends CeriosBuilder<Customer> {
+class CustomerBuilder extends CeriosClassBuilder<Customer> {
+	constructor(classConstructor: ClassConstructor<Customer> = Customer, data: Partial<Customer> = {}) {
+		super(classConstructor, data);
+	}
+
 	static create() {
-		return new CustomerBuilder({});
+		return new CustomerBuilder();
 	}
 
 	id(value: string) {
@@ -68,7 +77,7 @@ class CustomerBuilder extends CeriosBuilder<Customer> {
 	}
 
 	// Build address inline
-	withAddress(builderFn: (builder: AddressBuilder) => AddressBuilder & CeriosBrand<Address>) {
+	withAddress(builderFn: (builder: AddressBuilder) => AddressBuilder & CeriosClassBrand<Address>) {
 		const address = builderFn(AddressBuilder.create()).build();
 		return this.setProperty("address", address);
 	}
@@ -76,20 +85,20 @@ class CustomerBuilder extends CeriosBuilder<Customer> {
 	withAddressDefaults(
 		builderFn: (
 			builder: BuilderType<ReturnType<typeof AddressBuilder.createWithDefaults>>
-		) => AddressBuilder & CeriosBrand<Address>
+		) => AddressBuilder & CeriosClassBrand<Address>
 	) {
 		const address = builderFn(AddressBuilder.createWithDefaults()).build();
 		return this.setProperty("address", address);
 	}
 
-	addAddressHistory(builderFn: (builder: AddressBuilder) => AddressBuilder & CeriosBrand<Address>) {
+	addAddressHistory(builderFn: (builder: AddressBuilder) => AddressBuilder & CeriosClassBrand<Address>) {
 		const address = builderFn(AddressBuilder.create()).build();
 		const currentHistory = this._actual.addressHistory || [];
 		return this.setProperty("addressHistory", [...currentHistory, address]);
 	}
 }
 
-describe("Cerios Builder Nested", () => {
+describe("Cerios Class Builder Nested", () => {
 	test("should build customer with all fields", () => {
 		const customer = CustomerBuilder.create()
 			.id("123")

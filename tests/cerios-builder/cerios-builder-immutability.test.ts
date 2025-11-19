@@ -1,4 +1,5 @@
-import { CeriosBuilder, type DeepReadonly, type RequiredFieldsTemplate } from "../src/cerios-builder";
+import { CeriosBuilder, RequiredFieldsTemplate } from "../../src/cerios-builder";
+import { DeepReadonly } from "../../src/types";
 
 interface Address {
 	street: string;
