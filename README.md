@@ -1414,7 +1414,7 @@ console.log(partial); // { name: 'Incomplete User' }
 | `buildUnsafe()` | ❌ | ❌ | Fastest | Lowest | Trusted scenarios only |
 | `buildPartial()` | ❌ | ❌ | Fast | N/A | Incomplete objects |
 
-## � Immutable Build Methods
+## 🧊 Immutable Build Methods
 
 In addition to the standard build methods, `@cerios/cerios-builder` provides **frozen** and **sealed** variants that create immutable objects. These methods help prevent accidental mutations and enforce data integrity.
 
@@ -1658,7 +1658,7 @@ snapshots[0].currentUser.name = 'Changed'; // TypeError
 - ❌ Working with large data structures (performance cost)
 - ❌ Objects that need frequent transformations
 
-## �💡 Best Practices
+## 💡 Best Practices
 
 1. **Use `setNestedProperty()` for deep structures**: Instead of building nested objects separately, use dot notation for better type safety and cleaner code.
 
