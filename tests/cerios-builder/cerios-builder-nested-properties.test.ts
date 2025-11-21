@@ -1,4 +1,4 @@
-import { CeriosBuilder } from "../src/cerios-builder";
+import { CeriosBuilder } from "../../src/cerios-builder";
 
 type Address = {
 	Street: string;

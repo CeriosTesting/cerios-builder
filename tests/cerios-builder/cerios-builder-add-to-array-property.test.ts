@@ -1,4 +1,4 @@
-import { CeriosBuilder } from "../src/cerios-builder";
+import { CeriosBuilder } from "../../src/cerios-builder";
 
 describe("CeriosBuilder.addToArrayProperty", () => {
 	type Group = {

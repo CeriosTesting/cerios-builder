@@ -1,4 +1,4 @@
-import { CeriosBuilder, RequiredFieldsTemplate } from "../src/cerios-builder";
+import { CeriosBuilder, RequiredFieldsTemplate } from "../../src/cerios-builder";
 
 type User = {
 	id: string;
