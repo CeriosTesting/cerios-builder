@@ -19,6 +19,16 @@
 export type BuilderType<B> = B;
 
 /**
+ * Helper type to extract optional keys from a type.
+ * Returns keys where the property can be undefined.
+ *
+ * @template T - The type to extract optional keys from
+ */
+export type OptionalKeys<T> = {
+	[K in keyof T]-?: undefined extends T[K] ? K : never;
+}[keyof T];
+
+/**
  * Recursively makes all properties readonly for deep immutability.
  * Handles arrays, objects, and primitive types.
  *
