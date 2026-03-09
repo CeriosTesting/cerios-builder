@@ -139,6 +139,12 @@ export abstract class CeriosBuilder<T extends object> {
 	private _requiredFields: Set<string> = new Set();
 
 	/**
+	 * Custom validators that run during build.
+	 * @private
+	 */
+	private _validators: Array<(obj: Partial<T>) => boolean | string> = [];
+
+	/**
 	 * Sets the required fields for this builder instance.
 	 * This allows you to dynamically define which fields are required.
 	 *
@@ -157,6 +163,36 @@ export abstract class CeriosBuilder<T extends object> {
 	setRequiredFields(fields: ReadonlyArray<Path<T>>): this {
 		this._requiredFields = new Set([...fields] as string[]);
 		return this;
+	}
+
+	/**
+	 * Adds a custom validator function that will be executed during build.
+	 * Validators can return true for valid, false for invalid, or a string error message.
+	 * Multiple validators can be added and all will be checked.
+	 *
+	 * @param validator - Function that validates the partial object
+	 * @returns The builder instance for chaining
+	 *
+	 * @example
+	 * ```typescript
+	 * const builder = new MyBuilder({})
+	 *   .addValidator(obj => obj.age ? obj.age >= 18 : 'Age must be 18 or older')
+	 *   .addValidator(obj => obj.email?.includes('@') || 'Invalid email format')
+	 *   .setAge(20)
+	 *   .setEmail('user@example.com')
+	 *   .build();
+	 * ```
+	 */
+	addValidator(validator: (obj: Partial<T>) => boolean | string): this {
+		const BuilderClass = this.constructor as new (
+			data: any,
+			requiredFields?: RequiredFieldsTemplate<T>,
+			validators?: Array<(obj: Partial<T>) => boolean | string>
+		) => any;
+		return new BuilderClass(this._actual, Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>, [
+			...this._validators,
+			validator,
+		]) as this;
 	}
 
 	/**
@@ -205,18 +241,125 @@ export abstract class CeriosBuilder<T extends object> {
 	}
 
 	/**
+	 * Runs all custom validators and returns any error messages.
+	 * @private
+	 */
+	private runValidators(): string[] {
+		const errors: string[] = [];
+
+		for (const validator of this._validators) {
+			const result = validator(this._actual);
+			if (result === false) {
+				errors.push("Validation failed");
+			} else if (typeof result === "string") {
+				errors.push(result);
+			}
+			// If result is true, validation passed
+		}
+
+		return errors;
+	}
+
+	/**
+	 * Removes an optional property from the builder.
+	 * Only works with optional properties (those that can be undefined).
+	 *
+	 * @template K - The optional property key to remove
+	 * @param key - The property key to remove
+	 * @returns A new builder instance without the specified property
+	 *
+	 * @example
+	 * ```typescript
+	 * const builder = new MyBuilder()
+	 *   .setName('John')
+	 *   .setEmail('john@example.com')
+	 *   .removeOptionalProperty('email');
+	 * // Email is now removed from the builder
+	 * ```
+	 */
+	removeOptionalProperty<K extends import("./types").OptionalKeys<T>>(key: K): this {
+		const BuilderClass = this.constructor as new (
+			data: any,
+			requiredFields?: RequiredFieldsTemplate<T>,
+			validators?: Array<(obj: Partial<T>) => boolean | string>
+		) => any;
+		const newData = { ...this._actual };
+		delete newData[key];
+		return new BuilderClass(
+			newData,
+			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>,
+			this._validators
+		) as this;
+	}
+
+	/**
+	 * Clears all optional properties from the builder, keeping only required ones.
+	 * Properties in the required template and those marked as required are preserved.
+	 *
+	 * @returns A new builder instance with only required properties
+	 *
+	 * @example
+	 * ```typescript
+	 * const builder = new MyBuilder()
+	 *   .setName('John')      // required
+	 *   .setAge(30)           // required
+	 *   .setEmail('john@example.com')  // optional
+	 *   .setPhone('555-1234')          // optional
+	 *   .clearOptionalProperties();
+	 * // Only name and age remain
+	 * ```
+	 */
+	clearOptionalProperties(): this {
+		const BuilderClass = this.constructor as new (
+			data: any,
+			requiredFields?: RequiredFieldsTemplate<T>,
+			validators?: Array<(obj: Partial<T>) => boolean | string>
+		) => any;
+		const requiredPaths = this.getRequiredTemplate();
+		const newData: Partial<T> = {};
+
+		// Keep only properties that are in the required template
+		for (const path of requiredPaths) {
+			const keys = path.split(".");
+			if (keys.length === 1) {
+				const key = keys[0] as keyof T;
+				if (key in this._actual) {
+					newData[key] = this._actual[key];
+				}
+			} else {
+				// For nested paths, preserve the root object if it exists
+				const rootKey = keys[0] as keyof T;
+				if (rootKey in this._actual && !(rootKey in newData)) {
+					newData[rootKey] = this._actual[rootKey];
+				}
+			}
+		}
+
+		return new BuilderClass(
+			newData,
+			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>,
+			this._validators
+		) as this;
+	}
+
+	/**
 	 * Creates a new builder instance. Intended to be called by subclasses.
 	 *
 	 * @param _actual - The current partial state of the object being built
 	 * @param _requiredFields - Optional array of required field paths to preserve across instances
+	 * @param _validators - Optional array of validators to preserve across instances
 	 * @protected
 	 */
 	protected constructor(
 		protected readonly _actual: Partial<T>,
-		_requiredFields?: RequiredFieldsTemplate<T>
+		_requiredFields?: RequiredFieldsTemplate<T>,
+		_validators?: Array<(obj: Partial<T>) => boolean | string>
 	) {
 		if (_requiredFields) {
 			this._requiredFields = new Set([..._requiredFields] as string[]);
+		}
+		if (_validators) {
+			this._validators = [..._validators];
 		}
 	}
 
@@ -231,13 +374,18 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @protected
 	 */
 	protected setProperty<K extends keyof T>(key: K, value: T[K]): this & CeriosBrand<Pick<T, K>> {
-		const BuilderClass = this.constructor as new (data: any, requiredFields?: RequiredFieldsTemplate<T>) => any;
+		const BuilderClass = this.constructor as new (
+			data: any,
+			requiredFields?: RequiredFieldsTemplate<T>,
+			validators?: Array<(obj: Partial<T>) => boolean | string>
+		) => any;
 		return new BuilderClass(
 			{
 				...this._actual,
 				[key]: value,
 			},
-			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>
+			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>,
+			this._validators
 		) as this & CeriosBrand<Pick<T, K>>;
 	}
 
@@ -248,13 +396,18 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @protected
 	 */
 	protected setProperties<K extends keyof T>(props: Pick<T, K>): this & CeriosBrand<Pick<T, K>> {
-		const BuilderClass = this.constructor as new (data: any, requiredFields?: RequiredFieldsTemplate<T>) => any;
+		const BuilderClass = this.constructor as new (
+			data: any,
+			requiredFields?: RequiredFieldsTemplate<T>,
+			validators?: Array<(obj: Partial<T>) => boolean | string>
+		) => any;
 		return new BuilderClass(
 			{
 				...this._actual,
 				...props,
 			},
-			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>
+			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>,
+			this._validators
 		) as this & CeriosBrand<Pick<T, K>>;
 	}
 
@@ -277,7 +430,11 @@ export abstract class CeriosBuilder<T extends object> {
 		path: P,
 		value: PathValue<T, P>
 	): this & CeriosBrand<Pick<T, RootKey<P & string, T> extends never ? keyof T : RootKey<P & string, T>>> {
-		const BuilderClass = this.constructor as new (data: any, requiredFields?: RequiredFieldsTemplate<T>) => any;
+		const BuilderClass = this.constructor as new (
+			data: any,
+			requiredFields?: RequiredFieldsTemplate<T>,
+			validators?: Array<(obj: Partial<T>) => boolean | string>
+		) => any;
 		const keys = (path as string).split(".");
 		const newActual = this.deepClone(this._actual);
 
@@ -296,7 +453,8 @@ export abstract class CeriosBuilder<T extends object> {
 
 		return new BuilderClass(
 			newActual,
-			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>
+			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>,
+			this._validators
 		) as this & CeriosBrand<Pick<T, RootKey<P & string, T> extends never ? keyof T : RootKey<P & string, T>>>;
 	}
 
@@ -336,14 +494,19 @@ export abstract class CeriosBuilder<T extends object> {
 		K extends { [P in keyof T]: NonNullable<T[P]> extends Array<any> ? P : never }[keyof T],
 		V extends T[K] extends Array<infer U> ? U : T[K] extends Array<infer U> | undefined ? U : never,
 	>(key: K, value: V): this & CeriosBrand<Pick<T, K>> {
-		const BuilderClass = this.constructor as new (data: any, requiredFields?: RequiredFieldsTemplate<T>) => any;
+		const BuilderClass = this.constructor as new (
+			data: any,
+			requiredFields?: RequiredFieldsTemplate<T>,
+			validators?: Array<(obj: Partial<T>) => boolean | string>
+		) => any;
 		const currentArray = (this._actual[key] as Array<V> | undefined) ?? [];
 		return new BuilderClass(
 			{
 				...this._actual,
 				[key]: [...currentArray, value],
 			},
-			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>
+			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>,
+			this._validators
 		) as this & CeriosBrand<Pick<T, K>>;
 	}
 
@@ -359,9 +522,13 @@ export abstract class CeriosBuilder<T extends object> {
 	 */
 	build(this: this & CeriosBrand<T>): T {
 		const missing = this.validateRequiredFields();
-
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
+		}
+
+		const validationErrors = this.runValidators();
+		if (validationErrors.length > 0) {
+			throw new Error(`Validation failed: ${validationErrors.join("; ")}`);
 		}
 
 		return this._actual as T;
@@ -397,6 +564,11 @@ export abstract class CeriosBuilder<T extends object> {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
 		}
 
+		const validationErrors = this.runValidators();
+		if (validationErrors.length > 0) {
+			throw new Error(`Validation failed: ${validationErrors.join("; ")}`);
+		}
+
 		return this._actual as T;
 	}
 
@@ -424,15 +596,70 @@ export abstract class CeriosBuilder<T extends object> {
 	}
 
 	/**
-	 * @deprecated Use build() instead. buildSafe() is now an alias for build().
-	 * Builds the final object with runtime validation using the requiredTemplate.
-	 * This method validates that all fields in the requiredTemplate array are present.
+	 * Creates a new builder instance from an existing object.
+	 * This is useful for creating builders from existing instances to modify them.
 	 *
-	 * @returns The fully built object of type T
-	 * @throws {Error} If any required field is missing at runtime
+	 * @param instance - The existing object to create a builder from
+	 * @returns A new builder instance initialized with the object's data
+	 *
+	 * @example
+	 * ```typescript
+	 * const existingPerson = { name: 'John', age: 30 };
+	 * const builder = MyBuilder.from(existingPerson);
+	 * const updated = builder.setAge(31).build();
+	 * ```
 	 */
-	buildSafe(): T {
-		return this.buildWithoutCompileTimeValidation();
+	static from<T extends object>(this: new (data: Partial<T>) => any, instance: T): InstanceType<typeof this> {
+		const clonedData = CeriosBuilder.deepCloneStatic(instance);
+		return new this(clonedData);
+	}
+
+	/**
+	 * Creates a clone of the current builder instance.
+	 * The clone has the same state but is independent - changes to one won't affect the other.
+	 *
+	 * @returns A new builder instance with the same state
+	 *
+	 * @example
+	 * ```typescript
+	 * const builder1 = new MyBuilder({}).setName('John');
+	 * const builder2 = builder1.clone();
+	 * // builder2 is independent of builder1
+	 * ```
+	 */
+	clone(): this {
+		const BuilderClass = this.constructor as new (
+			data: any,
+			requiredFields?: RequiredFieldsTemplate<T>,
+			validators?: Array<(obj: Partial<T>) => boolean | string>
+		) => any;
+		const clonedData = this.deepClone(this._actual);
+		return new BuilderClass(
+			clonedData,
+			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>,
+			this._validators
+		) as this;
+	}
+
+	/**
+	 * Static deep clone helper for the from() method.
+	 * @private
+	 */
+	private static deepCloneStatic<V>(obj: V): V {
+		if (obj === null || typeof obj !== "object") {
+			return obj;
+		}
+		if (Array.isArray(obj)) {
+			return obj.map(item => this.deepCloneStatic(item)) as any;
+		}
+		const cloned: any = {};
+		const hasOwn = Object.prototype.hasOwnProperty;
+		for (const key in obj) {
+			if (hasOwn.call(obj, key)) {
+				cloned[key] = this.deepCloneStatic(obj[key]);
+			}
+		}
+		return cloned;
 	}
 
 	/**
@@ -448,9 +675,13 @@ export abstract class CeriosBuilder<T extends object> {
 	 */
 	buildFrozen(this: this & CeriosBrand<T>): Readonly<T> {
 		const missing = this.validateRequiredFields();
-
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
+		}
+
+		const validationErrors = this.runValidators();
+		if (validationErrors.length > 0) {
+			throw new Error(`Validation failed: ${validationErrors.join("; ")}`);
 		}
 
 		return Object.freeze(this._actual as T);
@@ -468,9 +699,13 @@ export abstract class CeriosBuilder<T extends object> {
 	 */
 	buildDeepFrozen(this: this & CeriosBrand<T>): DeepReadonly<T> {
 		const missing = this.validateRequiredFields();
-
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
+		}
+
+		const validationErrors = this.runValidators();
+		if (validationErrors.length > 0) {
+			throw new Error(`Validation failed: ${validationErrors.join("; ")}`);
 		}
 
 		return deepFreeze(this._actual as T) as DeepReadonly<T>;
@@ -489,9 +724,13 @@ export abstract class CeriosBuilder<T extends object> {
 	 */
 	buildSealed(this: this & CeriosBrand<T>): T {
 		const missing = this.validateRequiredFields();
-
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
+		}
+
+		const validationErrors = this.runValidators();
+		if (validationErrors.length > 0) {
+			throw new Error(`Validation failed: ${validationErrors.join("; ")}`);
 		}
 
 		return Object.seal(this._actual as T);
@@ -510,9 +749,13 @@ export abstract class CeriosBuilder<T extends object> {
 	 */
 	buildDeepSealed(this: this & CeriosBrand<T>): T {
 		const missing = this.validateRequiredFields();
-
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
+		}
+
+		const validationErrors = this.runValidators();
+		if (validationErrors.length > 0) {
+			throw new Error(`Validation failed: ${validationErrors.join("; ")}`);
 		}
 
 		return deepSeal(this._actual as T);

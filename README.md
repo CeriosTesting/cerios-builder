@@ -82,6 +82,9 @@ const user = UserBuilder.create()
 | **Multiple Properties** | `setProperties()` | Set multiple properties at once |
 | **Required Template** | `static requiredTemplate` | Define required fields for runtime validation |
 | **Dynamic Requirements** | `setRequiredFields()` | Add required fields at runtime |
+| **Custom Validators** | `addValidator()` | Add custom validation logic with error messages |
+| **Property Removal** | `removeOptionalProperty()` | Remove optional properties from builder |
+| **Clear Optional Props** | `clearOptionalProperties()` | Clear all optional properties, keep required |
 | **Full Validation** | `build()` | Build with both compile-time and runtime validation |
 | **Compile-Time Only** | `buildWithoutRuntimeValidation()` | Build with TypeScript checking only |
 | **Runtime Only** | `buildWithoutCompileTimeValidation()` | Build with runtime validation only |
@@ -1097,6 +1100,361 @@ This pattern is perfect when:
 .withCompleteAddress(addr => addr.street('...').zipCode('...'))
 ```
 
+## 🔍 Custom Validators
+
+Cerios Builder supports custom validation logic that runs when you build an object. Validators give you fine-grained control over business rules and constraints beyond simple "field required" checks.
+
+### Adding Validators
+
+Use the `addValidator()` method to add custom validation logic. Validators receive the partial object being built and can:
+- Return `true` if validation passes
+- Return `false` if validation fails (generic error)
+- Return a `string` error message for detailed feedback
+
+```typescript
+type User = {
+    name: string;
+    email: string;
+    age?: number;
+    password?: string;
+    confirmPassword?: string;
+};
+
+class UserBuilder extends CeriosBuilder<User> {
+    static requiredTemplate: RequiredFieldsTemplate<User> = ['name', 'email'];
+
+    static create() {
+        return new UserBuilder({});
+    }
+
+    name(value: string) {
+        return this.setProperty('name', value);
+    }
+
+    email(value: string) {
+        return this.setProperty('email', value);
+    }
+
+    age(value: number) {
+        return this.setProperty('age', value);
+    }
+
+    password(value: string) {
+        return this.setProperty('password', value);
+    }
+
+    confirmPassword(value: string) {
+        return this.setProperty('confirmPassword', value);
+    }
+}
+
+// Example 1: Simple boolean validation
+const user1 = UserBuilder.create()
+    .name('John Doe')
+    .email('john@example.com')
+    .age(20)
+    .addValidator(obj => (obj.age ?? 0) >= 18) // Returns true/false
+    .build(); // ✅ Passes - age is >= 18
+
+// Example 2: Validation with custom error messages
+try {
+    const user2 = UserBuilder.create()
+        .name('Jane Smith')
+        .email('invalid-email')
+        .addValidator(obj => obj.email?.includes('@') ? true : 'Email must contain @')
+        .build();
+} catch (error) {
+    console.error(error.message);
+    // Output: "Validation failed: Email must contain @"
+}
+
+// Example 3: Multiple validators
+const user3 = UserBuilder.create()
+    .name('Bob Johnson')
+    .email('bob@example.com')
+    .age(25)
+    .password('secret123')
+    .confirmPassword('secret123')
+    .addValidator(obj => (obj.age ?? 0) >= 18 || 'User must be at least 18 years old')
+    .addValidator(obj => obj.email?.includes('@') || 'Invalid email format')
+    .addValidator(obj => {
+        if (obj.password && obj.confirmPassword) {
+            return obj.password === obj.confirmPassword || 'Passwords do not match';
+        }
+        return true; // Skip validation if passwords not set
+    })
+    .build(); // ✅ All validators pass
+```
+
+### Validator Return Types
+
+| Return Type | Meaning | Example |
+|-------------|---------|---------|
+| `true` | Validation passed | `obj => obj.age >= 18` |
+| `false` | Validation failed (generic) | `obj => obj.price > 0` |
+| `string` | Validation failed with message | `obj => obj.age >= 18 \|\| 'Must be 18+'` |
+
+### Common Validation Patterns
+
+#### 1. Age Validation
+```typescript
+const user = UserBuilder.create()
+    .name('Alice')
+    .email('alice@example.com')
+    .age(16)
+    .addValidator(obj => {
+        if (obj.age === undefined) return true; // Optional field
+        return obj.age >= 18 || 'User must be at least 18 years old';
+    })
+    .build();
+```
+
+#### 2. Email Format Validation
+```typescript
+const user = UserBuilder.create()
+    .name('Charlie')
+    .email('charlie@example.com')
+    .addValidator(obj => {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return emailRegex.test(obj.email || '') || 'Invalid email format';
+    })
+    .build();
+```
+
+#### 3. Password Strength Validation
+```typescript
+const user = UserBuilder.create()
+    .name('Diana')
+    .email('diana@example.com')
+    .password('SecurePass123!')
+    .addValidator(obj => {
+        if (!obj.password) return true; // Skip if not set
+
+        const hasUpperCase = /[A-Z]/.test(obj.password);
+        const hasLowerCase = /[a-z]/.test(obj.password);
+        const hasNumber = /[0-9]/.test(obj.password);
+        const hasSpecialChar = /[!@#$%^&*]/.test(obj.password);
+        const isLongEnough = obj.password.length >= 8;
+
+        if (!isLongEnough) return 'Password must be at least 8 characters';
+        if (!hasUpperCase) return 'Password must contain an uppercase letter';
+        if (!hasLowerCase) return 'Password must contain a lowercase letter';
+        if (!hasNumber) return 'Password must contain a number';
+        if (!hasSpecialChar) return 'Password must contain a special character';
+
+        return true;
+    })
+    .build();
+```
+
+#### 4. Cross-Field Validation
+```typescript
+type Order = {
+    totalAmount: number;
+    discountAmount?: number;
+    finalAmount: number;
+};
+
+class OrderBuilder extends CeriosBuilder<Order> {
+    // ... methods
+}
+
+const order = OrderBuilder.create()
+    .totalAmount(100)
+    .discountAmount(20)
+    .finalAmount(80)
+    .addValidator(obj => {
+        const expected = (obj.totalAmount || 0) - (obj.discountAmount || 0);
+        return obj.finalAmount === expected ||
+            `Final amount must be ${expected} (total - discount)`;
+    })
+    .build();
+```
+
+#### 5. Conditional Required Fields
+```typescript
+type Employee = {
+    firstName: string;
+    lastName: string;
+    employeeType: 'full-time' | 'contractor';
+    employeeId?: string;
+    contractorId?: string;
+};
+
+class EmployeeBuilder extends CeriosBuilder<Employee> {
+    static requiredTemplate: RequiredFieldsTemplate<Employee> = [
+        'firstName',
+        'lastName',
+        'employeeType'
+    ];
+
+    // ... methods
+}
+
+const employee = EmployeeBuilder.create()
+    .firstName('John')
+    .lastName('Doe')
+    .employeeType('full-time')
+    .employeeId('EMP-12345')
+    .addValidator(obj => {
+        if (obj.employeeType === 'full-time') {
+            return obj.employeeId !== undefined || 'Full-time employees must have an employeeId';
+        }
+        if (obj.employeeType === 'contractor') {
+            return obj.contractorId !== undefined || 'Contractors must have a contractorId';
+        }
+        return true;
+    })
+    .build();
+```
+
+#### 6. Range Validation
+```typescript
+type Product = {
+    name: string;
+    price: number;
+    quantity?: number;
+};
+
+class ProductBuilder extends CeriosBuilder<Product> {
+    // ... methods
+}
+
+const product = ProductBuilder.create()
+    .name('Widget')
+    .price(29.99)
+    .quantity(5)
+    .addValidator(obj => obj.price > 0 || 'Price must be positive')
+    .addValidator(obj => obj.price < 10000 || 'Price cannot exceed $10,000')
+    .addValidator(obj => {
+        if (obj.quantity === undefined) return true;
+        return obj.quantity >= 0 || 'Quantity cannot be negative';
+    })
+    .build();
+```
+
+### Validator Execution
+
+- **Validators run during build**: All validators are executed when you call `build()` or `buildWithoutCompileTimeValidation()`
+- **Order matters**: Validators run in the order they were added
+- **First failure stops**: If a validator fails, an error is thrown immediately with that validator's message
+- **No validation for unsafe builds**: `buildUnsafe()` and `buildPartial()` skip all validators
+
+```typescript
+// Validators run for these build methods:
+builder.build();                              // ✅ Runs validators
+builder.buildWithoutCompileTimeValidation();  // ✅ Runs validators
+
+// Validators are skipped for these:
+builder.buildWithoutRuntimeValidation();      // ❌ Skips validators
+builder.buildUnsafe();                        // ❌ Skips validators
+builder.buildPartial();                       // ❌ Skips validators
+```
+
+### Combining Validators with Required Fields
+
+Validators work alongside the `requiredTemplate` for comprehensive validation:
+
+```typescript
+type Registration = {
+    username: string;
+    email: string;
+    age?: number;
+    acceptedTerms?: boolean;
+};
+
+class RegistrationBuilder extends CeriosBuilder<Registration> {
+    static requiredTemplate: RequiredFieldsTemplate<Registration> = [
+        'username',
+        'email'
+    ];
+
+    // ... methods
+}
+
+const registration = RegistrationBuilder.create()
+    .username('john_doe')
+    .email('john@example.com')
+    .age(25)
+    .acceptedTerms(true)
+    // Required template validates username and email are present
+    // Custom validators check business rules
+    .addValidator(obj => obj.username && obj.username.length >= 3 || 'Username must be at least 3 characters')
+    .addValidator(obj => obj.email?.includes('@') || 'Invalid email format')
+    .addValidator(obj => !obj.age || obj.age >= 13 || 'Must be at least 13 years old')
+    .addValidator(obj => obj.acceptedTerms === true || 'Must accept terms and conditions')
+    .build();
+// First checks: username and email are set (requiredTemplate)
+// Then runs: all custom validators in order
+```
+
+### Reusable Validators
+
+Create reusable validator functions for common patterns:
+
+```typescript
+// Reusable validator functions
+const validators = {
+    email: (obj: Partial<User>) =>
+        obj.email?.includes('@') || 'Invalid email format',
+
+    minAge: (minAge: number) => (obj: Partial<User>) =>
+        !obj.age || obj.age >= minAge || `Must be at least ${minAge} years old`,
+
+    passwordMatch: (obj: Partial<User>) => {
+        if (!obj.password || !obj.confirmPassword) return true;
+        return obj.password === obj.confirmPassword || 'Passwords do not match';
+    },
+
+    required: <T, K extends keyof T>(field: K, message?: string) => (obj: Partial<T>) =>
+        obj[field] !== undefined || message || `${String(field)} is required`,
+};
+
+// Use them in your builders
+const user = UserBuilder.create()
+    .name('John Doe')
+    .email('john@example.com')
+    .age(20)
+    .password('secret123')
+    .confirmPassword('secret123')
+    .addValidator(validators.email)
+    .addValidator(validators.minAge(18))
+    .addValidator(validators.passwordMatch)
+    .build();
+```
+
+### Testing with Validators
+
+Validators are perfect for test data creation with realistic constraints:
+
+```typescript
+describe('User Registration', () => {
+    const createValidUser = () => UserBuilder.create()
+        .name('Test User')
+        .email('test@example.com')
+        .age(25)
+        .addValidator(obj => (obj.age ?? 0) >= 18 || 'Must be 18+')
+        .addValidator(obj => obj.email?.includes('@') || 'Invalid email');
+
+    test('should accept valid user', () => {
+        const user = createValidUser().build();
+        expect(user.age).toBeGreaterThanOrEqual(18);
+    });
+
+    test('should reject underage user', () => {
+        expect(() => {
+            createValidUser().age(16).build();
+        }).toThrow('Must be 18+');
+    });
+
+    test('should reject invalid email', () => {
+        expect(() => {
+            createValidUser().email('invalid-email').build();
+        }).toThrow('Invalid email');
+    });
+});
+```
+
 ## 🧪 Testing Integration
 
 Cerios Builder is perfect for test data creation:
@@ -1207,6 +1565,11 @@ Base class for all builders.
 - `setNestedProperty<P>(path: P, value: PathValue<T, P>)` - Sets a deeply nested property using dot notation
 - `addToArrayProperty<K, V>(key: K, value: V)` - Adds a value to an array property and returns a new builder instance
 - `setRequiredFields(fields: ReadonlyArray<Path<T>>)` - Sets required fields dynamically for this instance
+- `addValidator(validator: (obj: Partial<T>) => boolean | string)` - Adds a custom validator that runs during build
+- `removeOptionalProperty<K>(key: K)` - Removes an optional property from the builder
+- `clearOptionalProperties()` - Clears all optional properties, keeping only required ones
+- `clone()` - Creates a clone of the current builder instance
+- `static from<T>(instance: T)` - Creates a new builder from an existing object
 
 #### Build Methods
 
