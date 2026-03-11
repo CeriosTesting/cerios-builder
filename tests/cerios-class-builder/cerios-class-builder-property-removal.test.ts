@@ -1,4 +1,6 @@
-import { CeriosClassBuilder, ClassConstructor } from "../../src/cerios-class-builder";
+import { describe, expect, it } from "vitest";
+
+import { CeriosClassBuilder, ClassBuilderStep, ClassConstructor } from "../../src/cerios-class-builder";
 
 class Person {
 	name!: string;
@@ -11,7 +13,7 @@ class Person {
 		if (data) Object.assign(this, data);
 	}
 
-	greet() {
+	greet(): string {
 		return `Hello, I'm ${this.name}`;
 	}
 }
@@ -22,29 +24,54 @@ class PersonBuilder extends CeriosClassBuilder<Person> {
 	constructor(
 		classConstructor: ClassConstructor<Person> = Person,
 		data: Partial<Person> = {},
-		validators?: Array<(obj: Partial<Person>) => boolean | string>
+		validators?: Array<(obj: Partial<Person>) => boolean | string>,
 	) {
 		super(classConstructor, data, validators);
 	}
 
-	static create() {
+	static create(): PersonBuilder {
 		return new PersonBuilder();
 	}
 
-	setProperty<K extends "name" | "age" | "email" | "phone" | "address">(key: K, value: any) {
-		return super.setProperty(key, value);
+	setProperty<K extends "name" | "age" | "email" | "phone" | "address">(
+		key: K,
+		value: unknown,
+	): ClassBuilderStep<this, Person, K> {
+		return super.setProperty(key as never, value as never) as ClassBuilderStep<this, Person, K>;
 	}
 
-	removeEmail() {
+	removeEmail(): this {
 		return this.removeOptionalProperty("email");
 	}
 
-	removePhone() {
+	removePhone(): this {
 		return this.removeOptionalProperty("phone");
 	}
 
-	removeAddress() {
+	removeAddress(): this {
 		return this.removeOptionalProperty("address");
+	}
+}
+
+class ConstructorRequiredPersonBuilder extends CeriosClassBuilder<Person> {
+	constructor(
+		classConstructor: ClassConstructor<Person> = Person,
+		data: Partial<Person> = {},
+		validators?: Array<(obj: Partial<Person>) => boolean | string>,
+		requiredFields: ReadonlyArray<"name" | "age"> = ["name", "age"],
+	) {
+		super(classConstructor, data, validators, requiredFields);
+	}
+
+	static create(): ConstructorRequiredPersonBuilder {
+		return new ConstructorRequiredPersonBuilder();
+	}
+
+	setProperty<K extends "name" | "age" | "email" | "phone" | "address">(
+		key: K,
+		value: unknown,
+	): ClassBuilderStep<this, Person, K> {
+		return super.setProperty(key as never, value as never) as ClassBuilderStep<this, Person, K>;
 	}
 }
 
@@ -115,7 +142,7 @@ describe("CeriosClassBuilder - Property Removal", () => {
 				.setProperty("name", "John")
 				.setProperty("age", 15)
 				.setProperty("email", "john@example.com")
-				.addValidator(obj => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older")
+				.addValidator((obj) => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older")
 				.removeEmail();
 
 			expect(() => builder.build()).toThrow("Age must be 18 or older");
@@ -130,7 +157,7 @@ describe("CeriosClassBuilder - Property Removal", () => {
 
 			const person = builder.buildUnsafe();
 
-			expect(person.greet).toBeDefined();
+			expect("greet" in person).toBe(true);
 			expect(typeof person.greet).toBe("function");
 			expect(person.greet()).toBe("Hello, I'm John");
 		});
@@ -203,7 +230,7 @@ describe("CeriosClassBuilder - Property Removal", () => {
 				.setProperty("name", "John")
 				.setProperty("age", 15)
 				.setProperty("email", "john@example.com")
-				.addValidator(obj => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older")
+				.addValidator((obj) => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older")
 				.clearOptionalProperties();
 
 			expect(() => builder.build()).toThrow("Age must be 18 or older");
@@ -233,9 +260,23 @@ describe("CeriosClassBuilder - Property Removal", () => {
 
 			const person = builder.buildUnsafe();
 
-			expect(person.greet).toBeDefined();
+			expect("greet" in person).toBe(true);
 			expect(typeof person.greet).toBe("function");
 			expect(person.greet()).toBe("Hello, I'm John");
+		});
+
+		it("should preserve constructor-defined required fields", () => {
+			const builder = ConstructorRequiredPersonBuilder.create()
+				.setProperty("name", "John")
+				.setProperty("age", 30)
+				.setProperty("email", "john@example.com")
+				.clearOptionalProperties();
+
+			const person = builder.build();
+
+			expect(person.name).toBe("John");
+			expect(person.age).toBe(30);
+			expect(person.email).toBeUndefined();
 		});
 	});
 });

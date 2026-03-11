@@ -1,4 +1,6 @@
-import { CeriosClassBuilder, ClassConstructor } from "../../src/cerios-class-builder";
+import { describe, expect, it } from "vitest";
+
+import { CeriosClassBuilder, ClassBuilderStep, ClassConstructor } from "../../src/cerios-class-builder";
 import type { DeepReadonly } from "../../src/types";
 
 class Address {
@@ -24,19 +26,19 @@ class AddressBuilder extends CeriosClassBuilder<Address> {
 		return new AddressBuilder();
 	}
 
-	street(street: string) {
+	street(street: string): ClassBuilderStep<this, Address, "street"> {
 		return this.setProperty("street", street);
 	}
 
-	city(city: string) {
+	city(city: string): ClassBuilderStep<this, Address, "city"> {
 		return this.setProperty("city", city);
 	}
 
-	zipCode(zipCode: string) {
+	zipCode(zipCode: string): ClassBuilderStep<this, Address, "zipCode"> {
 		return this.setProperty("zipCode", zipCode);
 	}
 
-	country(country: string) {
+	country(country: string): ClassBuilderStep<this, Address, "country"> {
 		return this.setProperty("country", country);
 	}
 }
@@ -50,24 +52,26 @@ class PersonBuilder extends CeriosClassBuilder<PersonClass> {
 		return new PersonBuilder();
 	}
 
-	name(name: string) {
+	name(name: string): ClassBuilderStep<this, PersonClass, "name"> {
 		return this.setProperty("name", name);
 	}
 
-	age(age: number) {
+	age(age: number): ClassBuilderStep<this, PersonClass, "age"> {
 		return this.setProperty("age", age);
 	}
 
-	address(address: Address) {
+	address(address: Address): ClassBuilderStep<this, PersonClass, "address"> {
 		return this.setProperty("address", address);
 	}
 
-	addHobby(hobby: string) {
+	addHobby(hobby: string): ClassBuilderStep<this, PersonClass, "hobbies"> {
 		return this.addToArrayProperty("hobbies", hobby);
 	}
 }
 
 describe("CeriosClassBuilder - Immutability", () => {
+	const mutationErrorPattern = /(read only|not extensible|Cannot (add|assign|delete)|object is not extensible)/i;
+
 	describe("buildFrozen()", () => {
 		it("should freeze the top-level object", () => {
 			const address = AddressBuilder.create()
@@ -93,8 +97,8 @@ describe("CeriosClassBuilder - Immutability", () => {
 			const person = PersonBuilder.create().name("Alice").age(30).address(address).buildFrozen();
 
 			expect(() => {
-				(person as any).name = "Bob";
-			}).toThrow();
+				(person as unknown as Record<string, unknown>).name = "Bob";
+			}).toThrow(mutationErrorPattern);
 		});
 
 		it("should not freeze nested objects (shallow freeze)", () => {
@@ -162,8 +166,8 @@ describe("CeriosClassBuilder - Immutability", () => {
 			const person = PersonBuilder.create().name("Alice").age(30).address(address).buildDeepFrozen();
 
 			expect(() => {
-				(person.address as any).street = "456 Oak Ave";
-			}).toThrow();
+				(person.address as unknown as Record<string, unknown>).street = "456 Oak Ave";
+			}).toThrow(mutationErrorPattern);
 		});
 
 		it("should prevent modification of arrays", () => {
@@ -182,7 +186,7 @@ describe("CeriosClassBuilder - Immutability", () => {
 
 			expect(() => {
 				(person.hobbies as string[] | undefined)?.push("gaming");
-			}).toThrow();
+			}).toThrow(mutationErrorPattern);
 		});
 
 		it("should return DeepReadonly type", () => {
@@ -238,8 +242,8 @@ describe("CeriosClassBuilder - Immutability", () => {
 				.buildSealed();
 
 			expect(() => {
-				(person as any).newProperty = "value";
-			}).toThrow();
+				(person as unknown as Record<string, unknown>).newProperty = "value";
+			}).toThrow(mutationErrorPattern);
 		});
 
 		it("should prevent deleting properties", () => {
@@ -257,8 +261,8 @@ describe("CeriosClassBuilder - Immutability", () => {
 				.buildSealed();
 
 			expect(() => {
-				delete (person as any).name;
-			}).toThrow();
+				delete (person as unknown as Record<string, unknown>).name;
+			}).toThrow(mutationErrorPattern);
 		});
 
 		it("should allow modification of existing properties", () => {
@@ -296,8 +300,8 @@ describe("CeriosClassBuilder - Immutability", () => {
 
 			expect(Object.isSealed(person.address)).toBe(false);
 			// Can add properties to nested objects
-			(person.address as any).newProp = "value";
-			expect((person.address as any).newProp).toBe("value");
+			(person.address as unknown as Record<string, unknown>).newProp = "value";
+			expect((person.address as unknown as Record<string, unknown>).newProp).toBe("value");
 		});
 	});
 
@@ -337,8 +341,8 @@ describe("CeriosClassBuilder - Immutability", () => {
 				.buildDeepSealed();
 
 			expect(() => {
-				(person.address as any).newProp = "value";
-			}).toThrow();
+				(person.address as unknown as Record<string, unknown>).newProp = "value";
+			}).toThrow(mutationErrorPattern);
 		});
 
 		it("should prevent adding elements to arrays", () => {
@@ -358,7 +362,7 @@ describe("CeriosClassBuilder - Immutability", () => {
 
 			expect(() => {
 				person.hobbies?.push("gaming");
-			}).toThrow();
+			}).toThrow(mutationErrorPattern);
 		});
 
 		it("should allow modification of existing nested properties", () => {
@@ -416,8 +420,8 @@ describe("CeriosClassBuilder - Immutability", () => {
 				.buildFrozen();
 
 			expect(() => {
-				(frozen as any).age = 31;
-			}).toThrow();
+				(frozen as unknown as Record<string, unknown>).age = 31;
+			}).toThrow(mutationErrorPattern);
 		});
 
 		it("sealed objects can have properties modified", () => {
@@ -452,12 +456,12 @@ describe("CeriosClassBuilder - Immutability", () => {
 			const sealed = builder.buildSealed();
 
 			expect(() => {
-				(frozen as any).newProp = "value";
-			}).toThrow();
+				(frozen as unknown as Record<string, unknown>).newProp = "value";
+			}).toThrow(mutationErrorPattern);
 
 			expect(() => {
-				(sealed as any).newProp = "value";
-			}).toThrow();
+				(sealed as unknown as Record<string, unknown>).newProp = "value";
+			}).toThrow(mutationErrorPattern);
 		});
 
 		it("both prevent deleting properties", () => {
@@ -474,12 +478,12 @@ describe("CeriosClassBuilder - Immutability", () => {
 			const sealed = builder.buildSealed();
 
 			expect(() => {
-				delete (frozen as any).name;
-			}).toThrow();
+				delete (frozen as unknown as Record<string, unknown>).name;
+			}).toThrow(mutationErrorPattern);
 
 			expect(() => {
-				delete (sealed as any).name;
-			}).toThrow();
+				delete (sealed as unknown as Record<string, unknown>).name;
+			}).toThrow(mutationErrorPattern);
 		});
 	});
 });

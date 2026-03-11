@@ -1,4 +1,6 @@
-import { CeriosClassBuilder, ClassConstructor } from "../../src/cerios-class-builder";
+import { describe, expect, it } from "vitest";
+
+import { CeriosClassBuilder, ClassBuilderStep, ClassConstructor } from "../../src/cerios-class-builder";
 
 describe("CeriosClassBuilder.addToArrayProperty", () => {
 	class Group {
@@ -18,29 +20,29 @@ describe("CeriosClassBuilder.addToArrayProperty", () => {
 			classConstructor: ClassConstructor<Group> = Group,
 			data: Partial<Group> = {},
 			validators?: Array<(obj: Partial<Group>) => boolean | string>,
-			requiredFields?: Set<string>
+			requiredFields?: Set<string>,
 		) {
 			super(classConstructor, data, validators, requiredFields);
 		}
 
-		static create() {
+		static create(): GroupBuilder {
 			return new GroupBuilder();
 		}
 
-		name(value: string) {
+		name(value: string): ClassBuilderStep<this, Group, "name"> {
 			return this.setProperty("name", value);
 		}
 
-		addMember(member: string) {
+		addMember(member: string): ClassBuilderStep<this, Group, "members"> {
 			return this.addToArrayProperty("members", member);
 		}
 
-		addTag(tag: string) {
+		addTag(tag: string): ClassBuilderStep<this, Group, "tags"> {
 			return this.addToArrayProperty("tags", tag);
 		}
 	}
 
-	test("should add a value to an empty array property", () => {
+	it("should add a value to an empty array property", () => {
 		const group = GroupBuilder.create().name("Dev Team").addMember("Alice").build();
 
 		expect(group).toBeInstanceOf(Group);
@@ -48,7 +50,7 @@ describe("CeriosClassBuilder.addToArrayProperty", () => {
 		expect(group.members).toEqual(["Alice"]);
 	});
 
-	test("should add multiple values to an array property", () => {
+	it("should add multiple values to an array property", () => {
 		const group = GroupBuilder.create().name("QA Team").addMember("Bob").addMember("Carol").build();
 
 		expect(group).toBeInstanceOf(Group);
@@ -56,7 +58,7 @@ describe("CeriosClassBuilder.addToArrayProperty", () => {
 		expect(group.members).toEqual(["Bob", "Carol"]);
 	});
 
-	test("should add to optional array property", () => {
+	it("should add to optional array property", () => {
 		const group = GroupBuilder.create().name("Ops Team").addMember("Dave").addTag("on-call").addTag("remote").build();
 
 		expect(group).toBeInstanceOf(Group);
@@ -65,7 +67,7 @@ describe("CeriosClassBuilder.addToArrayProperty", () => {
 		expect(group.tags).toEqual(["on-call", "remote"]);
 	});
 
-	test("should not mutate previous builder instances", () => {
+	it("should not mutate previous builder instances", () => {
 		const builder = GroupBuilder.create().name("Design Team");
 		const withAlice = builder.addMember("Alice");
 		const withBob = builder.addMember("Bob");
@@ -81,7 +83,7 @@ describe("CeriosClassBuilder.addToArrayProperty", () => {
 		expect(bobGroup.members).toEqual(["Bob"]);
 	});
 
-	test("should allow chaining addToArrayProperty with setProperty", () => {
+	it("should allow chaining addToArrayProperty with setProperty", () => {
 		const group = GroupBuilder.create().addMember("Eve").name("Security Team").build();
 
 		expect(group).toBeInstanceOf(Group);
@@ -89,7 +91,7 @@ describe("CeriosClassBuilder.addToArrayProperty", () => {
 		expect(group.members).toEqual(["Eve"]);
 	});
 
-	test("should preserve existing array values when cloning", () => {
+	it("should preserve existing array values when cloning", () => {
 		const builder1 = GroupBuilder.create().name("Marketing").addMember("Alice").addMember("Bob");
 		const builder2 = builder1.addMember("Carol");
 
@@ -100,7 +102,7 @@ describe("CeriosClassBuilder.addToArrayProperty", () => {
 		expect(group2.members).toEqual(["Alice", "Bob", "Carol"]);
 	});
 
-	test("should work with buildUnsafe", () => {
+	it("should work with buildUnsafe", () => {
 		const group = GroupBuilder.create().addMember("Alice").addTag("urgent").buildUnsafe();
 
 		expect(group).toBeInstanceOf(Group);
@@ -108,7 +110,7 @@ describe("CeriosClassBuilder.addToArrayProperty", () => {
 		expect(group.tags).toEqual(["urgent"]);
 	});
 
-	test("should work with buildPartial", () => {
+	it("should work with buildPartial", () => {
 		const partial = GroupBuilder.create().addMember("Alice").addMember("Bob").buildPartial();
 
 		expect(partial.members).toEqual(["Alice", "Bob"]);
