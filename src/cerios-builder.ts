@@ -1,3 +1,4 @@
+// oxlint-disable typescript/no-deprecated
 import { DeepReadonly } from "./types";
 
 /**
@@ -11,18 +12,87 @@ declare const __brand: unique symbol;
  * Type utility for branding builder types with information about which properties have been set.
  * This is used to enforce compile-time safety for required fields in the builder pattern.
  *
+ * @deprecated Prefer `BuilderStep`, `BuilderPreset`, `BuilderComposer`, or `BuilderComposerFromFactory` in user-facing APIs.
+ * This type remains exported for backward compatibility.
+ *
  * @template T - The type representing the set of properties that have been set
  * @internal
  */
 export type CeriosBrand<T> = { [__brand]: T };
+
+type RootFromPath<P extends string> = P extends `${infer K}.${string}` ? K : P;
+
+type StepKey<T extends object, S extends keyof T | Path<T>> = S extends keyof T
+	? S
+	: Extract<RootFromPath<S & string>, keyof T>;
+
+/**
+ * Helper type for fluent builder methods that set one root property.
+ * This keeps method signatures short while preserving compile-time field tracking.
+ * Supports both root keys ("name") and dot-notation paths ("address.street").
+ *
+ * @template B - The current builder instance type (usually `this`)
+ * @template T - The target object type being built
+ * @template S - A root key or path in T
+ */
+export type BuilderStep<B, T extends object, S extends keyof T | Path<T>> = B & CeriosBrand<Pick<T, StepKey<T, S>>>;
+
+/**
+ * Helper type for factory methods that return a preconfigured builder state.
+ * Useful for methods like `createWithDefaults()` where you want an explicit return type
+ * without losing compile-time tracking of which fields are already set.
+ *
+ * @template B - The builder instance type
+ * @template T - The target object type being built
+ * @template S - A root key or path (or union) already configured by the factory
+ */
+export type BuilderPreset<B, T extends object, S extends keyof T | Path<T>> = BuilderStep<B, T, S>;
+
+/**
+ * Helper type for callback-based builder composition APIs.
+ *
+ * Input builder:
+ * - If `Preset` is omitted, callback receives the base builder `B`.
+ * - If `Preset` is provided, callback receives a preconfigured builder state.
+ *
+ * Output builder:
+ * - Callback must return a fully buildable state for `T`.
+ *
+ * @template B - The builder instance type
+ * @template T - The target object type being built
+ * @template Preset - Optional preset key/path union already configured before callback execution
+ */
+export type BuilderComposer<B, T extends object, Preset extends keyof T | Path<T> = never> = (
+	builder: [Preset] extends [never] ? B : BuilderPreset<B, T, Preset>,
+) => BuilderPreset<B, T, keyof T>;
+
+type BuilderBaseFromFactoryReturn<R> = R extends (infer B) & CeriosBrand<unknown> ? B : R;
+
+type BuilderTargetFromFactoryReturn<R> = BuilderBaseFromFactoryReturn<R> extends CeriosBuilder<infer T> ? T : never;
+
+/**
+ * Helper type for composition callbacks based on a builder factory method.
+ *
+ * This infers both the callback input type (including presets/defaults) and the
+ * fully-buildable output type directly from the factory return type.
+ *
+ * @template F - A builder factory function type (for example: `typeof MyBuilder.createWithDefaults`)
+ */
+export type BuilderComposerFromFactory<F extends (...args: never[]) => unknown> = (
+	builder: ReturnType<F>,
+) => BuilderPreset<
+	BuilderBaseFromFactoryReturn<ReturnType<F>>,
+	BuilderTargetFromFactoryReturn<ReturnType<F>>,
+	keyof BuilderTargetFromFactoryReturn<ReturnType<F>>
+>;
 
 /**
  * Helper type to represent a path through an object structure
  * Handles optional properties by unwrapping them with NonNullable
  */
 type PathImpl<T, K extends keyof T = keyof T> = K extends string | number
-	? NonNullable<T[K]> extends Record<string, any>
-		? NonNullable<T[K]> extends Array<any>
+	? NonNullable<T[K]> extends object
+		? NonNullable<T[K]> extends Array<unknown>
 			? K
 			: K | `${K}.${PathImpl<NonNullable<T[K]>> & string}`
 		: K
@@ -48,19 +118,6 @@ type PathValue<T, P> = P extends keyof T
 export type RequiredFieldsTemplate<T> = ReadonlyArray<Path<T>>;
 
 /**
- * Cache the root key extraction to avoid repeated computation
- * Handles optional properties by ensuring the key is valid for T
- * @internal
- */
-type RootKey<P extends string, T = any> = P extends `${infer K}.${string}`
-	? K extends keyof T
-		? K
-		: never
-	: P extends keyof T
-		? P
-		: never;
-
-/**
  * Recursively freezes an object and all its nested properties.
  * @param obj - The object to freeze
  * @returns The frozen object
@@ -68,8 +125,8 @@ type RootKey<P extends string, T = any> = P extends `${infer K}.${string}`
  */
 function deepFreeze<T>(obj: T): T {
 	// Retrieve the property names defined on obj
-	Object.getOwnPropertyNames(obj).forEach(prop => {
-		const value = (obj as any)[prop];
+	Object.getOwnPropertyNames(obj).forEach((prop) => {
+		const value = (obj as Record<string, unknown>)[prop];
 
 		// Freeze properties before freezing self
 		if (value !== null && (typeof value === "object" || typeof value === "function")) {
@@ -88,8 +145,8 @@ function deepFreeze<T>(obj: T): T {
  */
 function deepSeal<T>(obj: T): T {
 	// Retrieve the property names defined on obj
-	Object.getOwnPropertyNames(obj).forEach(prop => {
-		const value = (obj as any)[prop];
+	Object.getOwnPropertyNames(obj).forEach((prop) => {
+		const value = (obj as Record<string, unknown>)[prop];
 
 		// Seal properties before sealing self
 		if (value !== null && (typeof value === "object" || typeof value === "function")) {
@@ -128,6 +185,9 @@ export abstract class CeriosBuilder<T extends object> {
 	 * Template defining which fields are required for this builder.
 	 * Subclasses should override this to specify their required fields as an array of paths.
 	 * The template is type-safe - only valid paths from type T can be used.
+	 *
+	 * @deprecated Prefer passing required fields via subclass constructor through `super(data, requiredFields)`
+	 * or setting them at runtime with `setRequiredFields()`.
 	 */
 	static requiredTemplate?: ReadonlyArray<string>;
 
@@ -185,14 +245,14 @@ export abstract class CeriosBuilder<T extends object> {
 	 */
 	addValidator(validator: (obj: Partial<T>) => boolean | string): this {
 		const BuilderClass = this.constructor as new (
-			data: any,
+			data: Partial<T>,
 			requiredFields?: RequiredFieldsTemplate<T>,
-			validators?: Array<(obj: Partial<T>) => boolean | string>
-		) => any;
+			validators?: Array<(obj: Partial<T>) => boolean | string>,
+		) => this;
 		return new BuilderClass(this._actual, Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>, [
 			...this._validators,
 			validator,
-		]) as this;
+		]);
 	}
 
 	/**
@@ -201,7 +261,7 @@ export abstract class CeriosBuilder<T extends object> {
 	 */
 	private getRequiredTemplate(): ReadonlyArray<string> {
 		const ctor = this.constructor as typeof CeriosBuilder;
-		const staticFields = ctor.requiredTemplate || [];
+		const staticFields = ctor.requiredTemplate ?? [];
 		const instanceFields = Array.from(this._requiredFields);
 
 		// Combine and deduplicate
@@ -218,15 +278,15 @@ export abstract class CeriosBuilder<T extends object> {
 
 		for (const path of requiredPaths) {
 			const keys = path.split(".");
-			let current: any = this._actual;
+			let current: unknown = this._actual;
 
 			for (let i = 0; i < keys.length; i++) {
 				const key = keys[i];
-				if (current === null || current === undefined || !(key in current)) {
+				if (current === null || current === undefined || typeof current !== "object" || !(key in current)) {
 					missing.push(path);
 					break;
 				}
-				current = current[key];
+				current = (current as Record<string, unknown>)[key];
 			}
 
 			// Check if the final value is null or undefined
@@ -279,17 +339,17 @@ export abstract class CeriosBuilder<T extends object> {
 	 */
 	removeOptionalProperty<K extends import("./types").OptionalKeys<T>>(key: K): this {
 		const BuilderClass = this.constructor as new (
-			data: any,
+			data: Partial<T>,
 			requiredFields?: RequiredFieldsTemplate<T>,
-			validators?: Array<(obj: Partial<T>) => boolean | string>
-		) => any;
+			validators?: Array<(obj: Partial<T>) => boolean | string>,
+		) => this;
 		const newData = { ...this._actual };
 		delete newData[key];
 		return new BuilderClass(
 			newData,
 			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>,
-			this._validators
-		) as this;
+			this._validators,
+		);
 	}
 
 	/**
@@ -311,10 +371,10 @@ export abstract class CeriosBuilder<T extends object> {
 	 */
 	clearOptionalProperties(): this {
 		const BuilderClass = this.constructor as new (
-			data: any,
+			data: Partial<T>,
 			requiredFields?: RequiredFieldsTemplate<T>,
-			validators?: Array<(obj: Partial<T>) => boolean | string>
-		) => any;
+			validators?: Array<(obj: Partial<T>) => boolean | string>,
+		) => this;
 		const requiredPaths = this.getRequiredTemplate();
 		const newData: Partial<T> = {};
 
@@ -338,8 +398,8 @@ export abstract class CeriosBuilder<T extends object> {
 		return new BuilderClass(
 			newData,
 			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>,
-			this._validators
-		) as this;
+			this._validators,
+		);
 	}
 
 	/**
@@ -353,7 +413,7 @@ export abstract class CeriosBuilder<T extends object> {
 	protected constructor(
 		protected readonly _actual: Partial<T>,
 		_requiredFields?: RequiredFieldsTemplate<T>,
-		_validators?: Array<(obj: Partial<T>) => boolean | string>
+		_validators?: Array<(obj: Partial<T>) => boolean | string>,
 	) {
 		if (_requiredFields) {
 			this._requiredFields = new Set([..._requiredFields] as string[]);
@@ -373,20 +433,20 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @returns A new builder instance with the property set and type state updated
 	 * @protected
 	 */
-	protected setProperty<K extends keyof T>(key: K, value: T[K]): this & CeriosBrand<Pick<T, K>> {
+	protected setProperty<K extends keyof T>(key: K, value: T[K]): BuilderStep<this, T, K> {
 		const BuilderClass = this.constructor as new (
-			data: any,
+			data: Partial<T>,
 			requiredFields?: RequiredFieldsTemplate<T>,
-			validators?: Array<(obj: Partial<T>) => boolean | string>
-		) => any;
+			validators?: Array<(obj: Partial<T>) => boolean | string>,
+		) => this;
 		return new BuilderClass(
 			{
 				...this._actual,
 				[key]: value,
 			},
 			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>,
-			this._validators
-		) as this & CeriosBrand<Pick<T, K>>;
+			this._validators,
+		) as BuilderStep<this, T, K>;
 	}
 
 	/**
@@ -395,20 +455,20 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @returns A new builder instance with the properties set and type state updated.
 	 * @protected
 	 */
-	protected setProperties<K extends keyof T>(props: Pick<T, K>): this & CeriosBrand<Pick<T, K>> {
+	protected setProperties<K extends keyof T>(props: Pick<T, K>): BuilderStep<this, T, K> {
 		const BuilderClass = this.constructor as new (
-			data: any,
+			data: Partial<T>,
 			requiredFields?: RequiredFieldsTemplate<T>,
-			validators?: Array<(obj: Partial<T>) => boolean | string>
-		) => any;
+			validators?: Array<(obj: Partial<T>) => boolean | string>,
+		) => this;
 		return new BuilderClass(
 			{
 				...this._actual,
 				...props,
 			},
 			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>,
-			this._validators
-		) as this & CeriosBrand<Pick<T, K>>;
+			this._validators,
+		) as BuilderStep<this, T, K>;
 	}
 
 	/**
@@ -426,36 +486,34 @@ export abstract class CeriosBuilder<T extends object> {
 	 * builder.setNestedProperty('Order.Details.CustomerId', 'value')
 	 * ```
 	 */
-	protected setNestedProperty<P extends Path<T>>(
-		path: P,
-		value: PathValue<T, P>
-	): this & CeriosBrand<Pick<T, RootKey<P & string, T> extends never ? keyof T : RootKey<P & string, T>>> {
+	protected setNestedProperty<P extends Path<T>>(path: P, value: PathValue<T, P>): BuilderStep<this, T, P> {
 		const BuilderClass = this.constructor as new (
-			data: any,
+			data: Partial<T>,
 			requiredFields?: RequiredFieldsTemplate<T>,
-			validators?: Array<(obj: Partial<T>) => boolean | string>
-		) => any;
+			validators?: Array<(obj: Partial<T>) => boolean | string>,
+		) => this;
 		const keys = (path as string).split(".");
 		const newActual = this.deepClone(this._actual);
 
-		let current: any = newActual;
+		let current = newActual as Record<string, unknown>;
 		for (let i = 0; i < keys.length - 1; i++) {
 			const key = keys[i];
-			if (!(key in current) || typeof current[key] !== "object" || current[key] === null) {
+			const existing = current[key];
+			if (!(key in current) || typeof existing !== "object" || existing === null) {
 				current[key] = {};
 			} else {
-				current[key] = this.deepClone(current[key]);
+				current[key] = this.deepClone(existing);
 			}
-			current = current[key];
+			current = current[key] as Record<string, unknown>;
 		}
 
-		current[keys[keys.length - 1]] = value;
+		current[keys[keys.length - 1]] = value as unknown;
 
 		return new BuilderClass(
 			newActual,
 			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>,
-			this._validators
-		) as this & CeriosBrand<Pick<T, RootKey<P & string, T> extends never ? keyof T : RootKey<P & string, T>>>;
+			this._validators,
+		) as BuilderStep<this, T, P>;
 	}
 
 	/**
@@ -467,16 +525,15 @@ export abstract class CeriosBuilder<T extends object> {
 			return obj;
 		}
 		if (Array.isArray(obj)) {
-			return obj.map(item => this.deepClone(item)) as any;
+			return obj.map((item) => this.deepClone(item)) as unknown as V;
 		}
-		const cloned: any = {};
-		const hasOwn = Object.prototype.hasOwnProperty;
+		const cloned: Record<string, unknown> = {};
 		for (const key in obj) {
-			if (hasOwn.call(obj, key)) {
-				cloned[key] = this.deepClone(obj[key]);
+			if (Object.prototype.hasOwnProperty.call(obj, key)) {
+				cloned[key] = this.deepClone((obj as Record<string, unknown>)[key]);
 			}
 		}
-		return cloned;
+		return cloned as V;
 	}
 
 	/**
@@ -491,14 +548,14 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @protected
 	 */
 	protected addToArrayProperty<
-		K extends { [P in keyof T]: NonNullable<T[P]> extends Array<any> ? P : never }[keyof T],
+		K extends { [P in keyof T]: NonNullable<T[P]> extends Array<unknown> ? P : never }[keyof T],
 		V extends T[K] extends Array<infer U> ? U : T[K] extends Array<infer U> | undefined ? U : never,
-	>(key: K, value: V): this & CeriosBrand<Pick<T, K>> {
+	>(key: K, value: V): BuilderStep<this, T, K> {
 		const BuilderClass = this.constructor as new (
-			data: any,
+			data: Partial<T>,
 			requiredFields?: RequiredFieldsTemplate<T>,
-			validators?: Array<(obj: Partial<T>) => boolean | string>
-		) => any;
+			validators?: Array<(obj: Partial<T>) => boolean | string>,
+		) => this;
 		const currentArray = (this._actual[key] as Array<V> | undefined) ?? [];
 		return new BuilderClass(
 			{
@@ -506,8 +563,8 @@ export abstract class CeriosBuilder<T extends object> {
 				[key]: [...currentArray, value],
 			},
 			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>,
-			this._validators
-		) as this & CeriosBrand<Pick<T, K>>;
+			this._validators,
+		) as BuilderStep<this, T, K>;
 	}
 
 	/**
@@ -592,7 +649,7 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @returns The partially built object
 	 */
 	buildPartial(): Partial<T> {
-		return this._actual as Partial<T>;
+		return this._actual;
 	}
 
 	/**
@@ -609,9 +666,9 @@ export abstract class CeriosBuilder<T extends object> {
 	 * const updated = builder.setAge(31).build();
 	 * ```
 	 */
-	static from<T extends object>(this: new (data: Partial<T>) => any, instance: T): InstanceType<typeof this> {
+	static from<T extends object, B extends new (data: Partial<T>) => unknown>(this: B, instance: T): InstanceType<B> {
 		const clonedData = CeriosBuilder.deepCloneStatic(instance);
-		return new this(clonedData);
+		return new this(clonedData) as InstanceType<B>;
 	}
 
 	/**
@@ -629,16 +686,16 @@ export abstract class CeriosBuilder<T extends object> {
 	 */
 	clone(): this {
 		const BuilderClass = this.constructor as new (
-			data: any,
+			data: Partial<T>,
 			requiredFields?: RequiredFieldsTemplate<T>,
-			validators?: Array<(obj: Partial<T>) => boolean | string>
-		) => any;
+			validators?: Array<(obj: Partial<T>) => boolean | string>,
+		) => this;
 		const clonedData = this.deepClone(this._actual);
 		return new BuilderClass(
 			clonedData,
 			Array.from(this._requiredFields) as unknown as RequiredFieldsTemplate<T>,
-			this._validators
-		) as this;
+			this._validators,
+		);
 	}
 
 	/**
@@ -650,16 +707,15 @@ export abstract class CeriosBuilder<T extends object> {
 			return obj;
 		}
 		if (Array.isArray(obj)) {
-			return obj.map(item => this.deepCloneStatic(item)) as any;
+			return obj.map((item) => this.deepCloneStatic(item)) as unknown as V;
 		}
-		const cloned: any = {};
-		const hasOwn = Object.prototype.hasOwnProperty;
+		const cloned: Record<string, unknown> = {};
 		for (const key in obj) {
-			if (hasOwn.call(obj, key)) {
-				cloned[key] = this.deepCloneStatic(obj[key]);
+			if (Object.prototype.hasOwnProperty.call(obj, key)) {
+				cloned[key] = this.deepCloneStatic((obj as Record<string, unknown>)[key]);
 			}
 		}
-		return cloned;
+		return cloned as V;
 	}
 
 	/**

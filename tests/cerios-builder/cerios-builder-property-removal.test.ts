@@ -1,4 +1,6 @@
-import { CeriosBuilder } from "../../src/cerios-builder";
+import { describe, expect, it } from "vitest";
+
+import { BuilderStep, CeriosBuilder } from "../../src/cerios-builder";
 
 interface Person {
 	name: string;
@@ -11,44 +13,66 @@ interface Person {
 class PersonBuilder extends CeriosBuilder<Person> {
 	constructor(
 		data: Partial<Person> = {},
-		requiredFields?: ReadonlyArray<string>,
-		validators?: Array<(obj: Partial<Person>) => boolean | string>
+		requiredFields?: ReadonlyArray<keyof Person>,
+		validators?: Array<(obj: Partial<Person>) => boolean | string>,
 	) {
-		super(data, requiredFields as any, validators);
+		super(data, requiredFields as ReadonlyArray<keyof Person>, validators);
 	}
 
 	static requiredTemplate = ["name", "age"] as const;
 
-	setName(value: string) {
+	setName(value: string): BuilderStep<this, Person, "name"> {
 		return this.setProperty("name", value);
 	}
 
-	setAge(value: number) {
+	setAge(value: number): BuilderStep<this, Person, "age"> {
 		return this.setProperty("age", value);
 	}
 
-	setEmail(value: string) {
+	setEmail(value: string): BuilderStep<this, Person, "email"> {
 		return this.setProperty("email", value);
 	}
 
-	setPhone(value: string) {
+	setPhone(value: string): BuilderStep<this, Person, "phone"> {
 		return this.setProperty("phone", value);
 	}
 
-	setAddress(value: string) {
+	setAddress(value: string): BuilderStep<this, Person, "address"> {
 		return this.setProperty("address", value);
 	}
 
-	removeEmail() {
+	removeEmail(): this {
 		return this.removeOptionalProperty("email");
 	}
 
-	removePhone() {
+	removePhone(): this {
 		return this.removeOptionalProperty("phone");
 	}
 
-	removeAddress() {
+	removeAddress(): this {
 		return this.removeOptionalProperty("address");
+	}
+}
+
+class ConstructorRequiredPersonBuilder extends CeriosBuilder<Person> {
+	constructor(
+		data: Partial<Person> = {},
+		requiredFields: ReadonlyArray<"name" | "age"> = ["name", "age"],
+		validators?: Array<(obj: Partial<Person>) => boolean | string>,
+	) {
+		super(data, requiredFields, validators);
+	}
+
+	setName(value: string): BuilderStep<this, Person, "name"> {
+		return this.setProperty("name", value);
+	}
+
+	setAge(value: number): BuilderStep<this, Person, "age"> {
+		return this.setProperty("age", value);
+	}
+
+	setEmail(value: string): BuilderStep<this, Person, "email"> {
+		return this.setProperty("email", value);
 	}
 }
 
@@ -116,7 +140,7 @@ describe("CeriosBuilder - Property Removal", () => {
 				.setName("John")
 				.setAge(15)
 				.setEmail("john@example.com")
-				.addValidator(obj => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older")
+				.addValidator((obj) => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older")
 				.removeEmail();
 
 			expect(() => builder.build()).toThrow("Age must be 18 or older");
@@ -183,7 +207,7 @@ describe("CeriosBuilder - Property Removal", () => {
 				.setName("John")
 				.setAge(15)
 				.setEmail("john@example.com")
-				.addValidator(obj => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older")
+				.addValidator((obj) => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older")
 				.clearOptionalProperties();
 
 			expect(() => builder.build()).toThrow("Age must be 18 or older");
@@ -202,6 +226,20 @@ describe("CeriosBuilder - Property Removal", () => {
 
 			expect(person.email).toBe("new@example.com");
 			expect(person.phone).toBeUndefined();
+		});
+
+		it("should preserve constructor-defined required fields", () => {
+			const builder = new ConstructorRequiredPersonBuilder()
+				.setName("John")
+				.setAge(30)
+				.setEmail("john@example.com")
+				.clearOptionalProperties();
+
+			const person = builder.build();
+
+			expect(person.name).toBe("John");
+			expect(person.age).toBe(30);
+			expect(person.email).toBeUndefined();
 		});
 	});
 });

@@ -1,4 +1,6 @@
-import { CeriosBuilder } from "../../src/cerios-builder";
+import { describe, expect, it } from "vitest";
+
+import { BuilderStep, CeriosBuilder } from "../../src/cerios-builder";
 
 describe("CeriosBuilder.addToArrayProperty", () => {
 	type Group = {
@@ -8,24 +10,24 @@ describe("CeriosBuilder.addToArrayProperty", () => {
 	};
 
 	class GroupBuilder extends CeriosBuilder<Group> {
-		static create() {
+		static create(): GroupBuilder {
 			return new GroupBuilder({});
 		}
 
-		name(value: string) {
+		name(value: string): BuilderStep<this, Group, "name"> {
 			return this.setProperty("name", value);
 		}
 
-		addMember(member: string) {
+		addMember(member: string): BuilderStep<this, Group, "members"> {
 			return this.addToArrayProperty("members", member);
 		}
 
-		addTag(tag: string) {
+		addTag(tag: string): BuilderStep<this, Group, "tags"> {
 			return this.addToArrayProperty("tags", tag);
 		}
 	}
 
-	test("should add a value to an empty array property", () => {
+	it("should add a value to an empty array property", () => {
 		const group = GroupBuilder.create().name("Dev Team").addMember("Alice").build();
 
 		expect(group).toEqual({
@@ -34,7 +36,7 @@ describe("CeriosBuilder.addToArrayProperty", () => {
 		});
 	});
 
-	test("should add multiple values to an array property", () => {
+	it("should add multiple values to an array property", () => {
 		const group = GroupBuilder.create().name("QA Team").addMember("Bob").addMember("Carol").build();
 
 		expect(group).toEqual({
@@ -43,7 +45,7 @@ describe("CeriosBuilder.addToArrayProperty", () => {
 		});
 	});
 
-	test("should add to optional array property", () => {
+	it("should add to optional array property", () => {
 		const group = GroupBuilder.create().name("Ops Team").addMember("Dave").addTag("on-call").addTag("remote").build();
 
 		expect(group).toEqual({
@@ -53,7 +55,7 @@ describe("CeriosBuilder.addToArrayProperty", () => {
 		});
 	});
 
-	test("should not mutate previous builder instances", () => {
+	it("should not mutate previous builder instances", () => {
 		const builder = GroupBuilder.create().name("Design Team");
 		const withAlice = builder.addMember("Alice");
 		const withBob = builder.addMember("Bob");
@@ -68,7 +70,7 @@ describe("CeriosBuilder.addToArrayProperty", () => {
 		});
 	});
 
-	test("should allow chaining addToArrayProperty with setProperty", () => {
+	it("should allow chaining addToArrayProperty with setProperty", () => {
 		const group = GroupBuilder.create().addMember("Eve").name("Security Team").build();
 
 		expect(group).toEqual({

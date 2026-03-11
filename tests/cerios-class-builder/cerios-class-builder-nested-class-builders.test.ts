@@ -1,5 +1,12 @@
-import { CeriosClassBrand, CeriosClassBuilder, ClassConstructor } from "../../src/cerios-class-builder";
-import { BuilderType } from "../../src/types";
+import { describe, expect, it } from "vitest";
+
+import {
+	CeriosClassBuilder,
+	ClassBuilderComposerFromFactory,
+	ClassBuilderPreset,
+	ClassBuilderStep,
+	ClassConstructor,
+} from "../../src/cerios-class-builder";
 
 class Address {
 	street!: string;
@@ -21,32 +28,32 @@ class AddressBuilder extends CeriosClassBuilder<Address> {
 		super(classConstructor, data);
 	}
 
-	static create() {
+	static create(): AddressBuilder {
 		return new AddressBuilder();
 	}
 
-	static createWithDefaults() {
+	static createWithDefaults(): ClassBuilderPreset<AddressBuilder, Address, "city" | "country"> {
 		return this.create().city("Othertown").country("United States");
 	}
 
-	street(value: string) {
+	street(value: string): ClassBuilderStep<this, Address, "street"> {
 		return this.setProperty("street", value);
 	}
 
-	city(value: string) {
+	city(value: string): ClassBuilderStep<this, Address, "city"> {
 		return this.setProperty("city", value);
 	}
 
-	country(value: string) {
+	country(value: string): ClassBuilderStep<this, Address, "country"> {
 		return this.setProperty("country", value);
 	}
 
-	zipCode(value: string) {
+	zipCode(value: string): ClassBuilderStep<this, Address, "zipCode"> {
 		return this.setProperty("zipCode", value);
 	}
 
 	// Preset addresses
-	asUSAddress() {
+	asUSAddress(): ClassBuilderStep<this, Address, "country"> {
 		return this.country("United States");
 	}
 }
@@ -56,54 +63,56 @@ class CustomerBuilder extends CeriosClassBuilder<Customer> {
 		super(classConstructor, data);
 	}
 
-	static create() {
+	static create(): CustomerBuilder {
 		return new CustomerBuilder();
 	}
 
-	id(value: string) {
+	id(value: string): ClassBuilderStep<this, Customer, "id"> {
 		return this.setProperty("id", value);
 	}
 
-	name(value: string) {
+	name(value: string): ClassBuilderStep<this, Customer, "name"> {
 		return this.setProperty("name", value);
 	}
 
-	address(value: Address) {
+	address(value: Address): ClassBuilderStep<this, Customer, "address"> {
 		return this.setProperty("address", value);
 	}
 
-	phoneNumber(value: string) {
+	phoneNumber(value: string): ClassBuilderStep<this, Customer, "phoneNumber"> {
 		return this.setProperty("phoneNumber", value);
 	}
 
 	// Build address inline
-	withAddress(builderFn: (builder: AddressBuilder) => AddressBuilder & CeriosClassBrand<Address>) {
+	withAddress(
+		builderFn: ClassBuilderComposerFromFactory<typeof AddressBuilder.create>,
+	): ClassBuilderStep<this, Customer, "address"> {
 		const address = builderFn(AddressBuilder.create()).build();
 		return this.setProperty("address", address);
 	}
 
 	withAddressDefaults(
-		builderFn: (
-			builder: BuilderType<ReturnType<typeof AddressBuilder.createWithDefaults>>
-		) => AddressBuilder & CeriosClassBrand<Address>
-	) {
+		builderFn: ClassBuilderComposerFromFactory<typeof AddressBuilder.createWithDefaults>,
+	): ClassBuilderStep<this, Customer, "address"> {
 		const address = builderFn(AddressBuilder.createWithDefaults()).build();
 		return this.setProperty("address", address);
 	}
 
-	addAddressHistory(builderFn: (builder: AddressBuilder) => AddressBuilder & CeriosClassBrand<Address>) {
+	addAddressHistory(
+		builderFn: ClassBuilderComposerFromFactory<typeof AddressBuilder.create>,
+	): ClassBuilderStep<this, Customer, "addressHistory"> {
 		const address = builderFn(AddressBuilder.create()).build();
-		const currentHistory = this._actual.addressHistory || [];
+		const currentHistory = this._actual.addressHistory ?? [];
 		return this.setProperty("addressHistory", [...currentHistory, address]);
 	}
 }
 
 describe("Cerios Class Builder Nested", () => {
-	test("should build customer with all fields", () => {
+	it("should build customer with all fields", () => {
 		const customer = CustomerBuilder.create()
 			.id("123")
 			.name("John Doe")
-			.withAddress(address => address.street("123 Main St").city("Anytown").country("USA").zipCode("12345"))
+			.withAddress((address) => address.street("123 Main St").city("Anytown").country("USA").zipCode("12345"))
 			.phoneNumber("555-1234")
 			.build();
 
@@ -120,11 +129,11 @@ describe("Cerios Class Builder Nested", () => {
 		});
 	});
 
-	test("should build customer with default address", () => {
+	it("should build customer with default address", () => {
 		const customer = CustomerBuilder.create()
 			.id("456")
 			.name("Jane Smith")
-			.withAddressDefaults(address => address.street("456 Elm St"))
+			.withAddressDefaults((address) => address.street("456 Elm St"))
 			.build();
 
 		expect(customer).toEqual({
@@ -138,13 +147,13 @@ describe("Cerios Class Builder Nested", () => {
 		});
 	});
 
-	test("should build customer with address history", () => {
+	it("should build customer with address history", () => {
 		const customer = CustomerBuilder.create()
 			.id("789")
 			.name("Alice Johnson")
-			.withAddress(address => address.street("789 Oak St").city("Oldtown").country("USA"))
-			.addAddressHistory(address => address.street("101 Pine St").city("Newtown").country("USA"))
-			.addAddressHistory(address => address.street("202 Maple St").city("Sometown").country("USA"))
+			.withAddress((address) => address.street("789 Oak St").city("Oldtown").country("USA"))
+			.addAddressHistory((address) => address.street("101 Pine St").city("Newtown").country("USA"))
+			.addAddressHistory((address) => address.street("202 Maple St").city("Sometown").country("USA"))
 			.build();
 
 		expect(customer).toEqual({

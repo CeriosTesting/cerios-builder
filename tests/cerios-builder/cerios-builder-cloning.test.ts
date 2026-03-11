@@ -1,4 +1,6 @@
-import { CeriosBuilder } from "../../src/cerios-builder";
+import { describe, expect, it } from "vitest";
+
+import { BuilderStep, CeriosBuilder } from "../../src/cerios-builder";
 
 interface Address {
 	street: string;
@@ -19,27 +21,27 @@ class PersonBuilder extends CeriosBuilder<Person> {
 		super(data);
 	}
 
-	setName(value: string) {
+	setName(value: string): BuilderStep<this, Person, "name"> {
 		return this.setProperty("name", value);
 	}
 
-	setAge(value: number) {
+	setAge(value: number): BuilderStep<this, Person, "age"> {
 		return this.setProperty("age", value);
 	}
 
-	setEmail(value: string) {
+	setEmail(value: string): BuilderStep<this, Person, "email"> {
 		return this.setProperty("email", value);
 	}
 
-	setAddress(value: Address) {
+	setAddress(value: Address): BuilderStep<this, Person, "address"> {
 		return this.setProperty("address", value);
 	}
 
-	setAddressCity(value: string) {
+	setAddressCity(value: string): BuilderStep<this, Person, "address"> {
 		return this.setNestedProperty("address.city", value);
 	}
 
-	addHobby(value: string) {
+	addHobby(value: string): BuilderStep<this, Person, "hobbies"> {
 		return this.addToArrayProperty("hobbies", value);
 	}
 }
@@ -106,11 +108,11 @@ describe("CeriosBuilder - Cloning", () => {
 					super(data);
 				}
 
-				setName(value: string) {
+				setName(value: string): BuilderStep<this, Person, "name"> {
 					return this.setProperty("name", value);
 				}
 
-				setAge(value: number) {
+				setAge(value: number): BuilderStep<this, Person, "age"> {
 					return this.setProperty("age", value);
 				}
 			}

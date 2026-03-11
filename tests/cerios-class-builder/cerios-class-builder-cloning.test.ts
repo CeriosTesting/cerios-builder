@@ -1,4 +1,6 @@
-import { CeriosClassBuilder, ClassConstructor } from "../../src/cerios-class-builder";
+import { describe, expect, it } from "vitest";
+
+import { CeriosClassBuilder, ClassBuilderStep, ClassConstructor } from "../../src/cerios-class-builder";
 
 class Address {
 	street!: string;
@@ -21,11 +23,11 @@ class Person {
 		if (data) Object.assign(this, data);
 	}
 
-	greet() {
+	greet(): string {
 		return `Hello, I'm ${this.name}`;
 	}
 
-	getAge() {
+	getAge(): number {
 		return this.age;
 	}
 }
@@ -35,20 +37,26 @@ class PersonBuilder extends CeriosClassBuilder<Person> {
 		super(classConstructor, data);
 	}
 
-	static create() {
+	static create(): PersonBuilder {
 		return new PersonBuilder();
 	}
 
-	static fromInstance(instance: Person) {
+	static fromInstance(instance: Person): PersonBuilder {
 		return PersonBuilder.from(Person, instance);
 	}
 
-	setProperty<K extends "name" | "age" | "email" | "address" | "hobbies">(key: K, value: any) {
-		return super.setProperty(key, value);
+	setProperty<K extends "name" | "age" | "email" | "address" | "hobbies">(
+		key: K,
+		value: unknown,
+	): ClassBuilderStep<this, Person, K> {
+		return super.setProperty(key as never, value as never) as ClassBuilderStep<this, Person, K>;
 	}
 
-	setNestedProperty<P extends import("../../src").ClassPath<Person>>(path: P, value: any) {
-		return super.setNestedProperty(path, value);
+	setNestedProperty<P extends import("../../src").ClassPath<Person>>(
+		path: P,
+		value: unknown,
+	): ClassBuilderStep<this, Person, P> {
+		return super.setNestedProperty(path, value as never);
 	}
 }
 
@@ -121,7 +129,7 @@ describe("CeriosClassBuilder - Cloning", () => {
 			const builder2 = builder1.clone();
 			const person = builder2.buildUnsafe();
 
-			expect(person.greet).toBeDefined();
+			expect("greet" in person).toBe(true);
 			expect(typeof person.greet).toBe("function");
 			expect(person.greet()).toBe("Hello, I'm John");
 			expect(person.getAge()).toBe(30);
@@ -215,7 +223,7 @@ describe("CeriosClassBuilder - Cloning", () => {
 			const builder = PersonBuilder.fromInstance(existingPerson);
 			const person = builder.buildUnsafe();
 
-			expect(person.greet).toBeDefined();
+			expect("greet" in person).toBe(true);
 			expect(typeof person.greet).toBe("function");
 			expect(person.greet()).toBe("Hello, I'm John Doe");
 			expect(person.getAge()).toBe(30);
