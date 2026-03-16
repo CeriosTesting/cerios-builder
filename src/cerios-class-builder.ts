@@ -16,22 +16,27 @@ type DataPropertiesOnly<T> = {
 };
 
 /**
+ * Internal brand for class-builder type-state tracking.
+ * Prefer helper aliases like `ClassBuilderStep` in public APIs.
+ */
+type InternalClassBrand<T> = {
+	readonly __classBuilderBrand: T;
+};
+
+/**
  * Brand type specifically for class builders that only tracks data properties.
  *
  * @deprecated Prefer `ClassBuilderStep`, `ClassBuilderPreset`, `ClassBuilderComposer`,
  * or `ClassBuilderComposerFromFactory` in user-facing APIs.
  * This type remains exported for backward compatibility.
  */
-export type CeriosClassBrand<T> = {
-	readonly __classBuilderBrand: T;
-};
+export type CeriosClassBrand<T> = InternalClassBrand<T>;
 
 type RootFromPath<P extends string> = P extends `${infer K}.${string}` ? K : P;
 
-type ClassStepKey<
-	T extends object,
-	S extends keyof DataPropertiesOnly<T> | ClassPath<T>,
-> = S extends keyof DataPropertiesOnly<T> ? S : Extract<RootFromPath<S & string>, keyof DataPropertiesOnly<T>>;
+type ClassStepKey<T extends object, S extends keyof T | ClassPath<T>> = S extends keyof T
+	? Extract<S, keyof DataPropertiesOnly<T>>
+	: Extract<RootFromPath<S & string>, keyof DataPropertiesOnly<T>>;
 
 /**
  * Helper type for fluent class-builder methods.
@@ -41,8 +46,8 @@ type ClassStepKey<
  * @template T - The class type being built
  * @template S - A data-property key or class path
  */
-export type ClassBuilderStep<B, T extends object, S extends keyof DataPropertiesOnly<T> | ClassPath<T>> = B &
-	CeriosClassBrand<Pick<DataPropertiesOnly<T>, ClassStepKey<T, S>>>;
+export type ClassBuilderStep<B, T extends object, S extends keyof T | ClassPath<T>> = B &
+	InternalClassBrand<Pick<DataPropertiesOnly<T>, ClassStepKey<T, S>>>;
 
 /**
  * Helper type for factory methods that return a preconfigured class-builder state.
@@ -72,7 +77,7 @@ export type ClassBuilderComposer<
 	builder: [Preset] extends [never] ? B : ClassBuilderPreset<B, T, Preset>,
 ) => ClassBuilderPreset<B, T, keyof DataPropertiesOnly<T>>;
 
-type ClassBuilderBaseFromFactoryReturn<R> = R extends (infer B) & CeriosClassBrand<unknown> ? B : R;
+type ClassBuilderBaseFromFactoryReturn<R> = R extends (infer B) & InternalClassBrand<unknown> ? B : R;
 
 type ClassBuilderTargetFromFactoryReturn<R> =
 	ClassBuilderBaseFromFactoryReturn<R> extends CeriosClassBuilder<infer T> ? T : never;
@@ -259,7 +264,19 @@ export class CeriosClassBuilder<T extends object> {
 	protected setProperty<K extends keyof DataPropertiesOnly<T>>(
 		key: K,
 		value: DataPropertiesOnly<T>[K],
-	): ClassBuilderStep<this, T, K> {
+	): ClassBuilderStep<this, T, K>;
+	/**
+	 * Fallback overload for generic subclass scenarios where TypeScript cannot
+	 * resolve `keyof DataPropertiesOnly<T>` from a literal key.
+	 * This keeps fluent APIs ergonomic in shared generic base builders.
+	 * @protected
+	 */
+	protected setProperty<K extends keyof T & string>(key: K, value: T[K]): ClassBuilderStep<this, T, K>;
+	protected setProperty<K extends keyof DataPropertiesOnly<T>>(
+		key: K,
+		value: DataPropertiesOnly<T>[K],
+	): ClassBuilderStep<this, T, K>;
+	protected setProperty<K extends keyof T & string>(key: K, value: T[K]): ClassBuilderStep<this, T, K> {
 		const newBuilder = this.createBuilder({
 			...this._actual,
 			[key]: value,
@@ -569,7 +586,7 @@ export class CeriosClassBuilder<T extends object> {
 	 * @returns The fully built and validated class instance
 	 * @throws {Error} If required fields are missing or validation fails
 	 */
-	build(this: this & CeriosClassBrand<DataPropertiesOnly<T>>): T {
+	build(this: this & InternalClassBrand<DataPropertiesOnly<T>>): T {
 		const missing = this.validateRequiredFields();
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
@@ -600,7 +617,7 @@ export class CeriosClassBuilder<T extends object> {
 	 *
 	 * @returns The fully built class instance
 	 */
-	buildWithoutRuntimeValidation(this: this & CeriosClassBrand<DataPropertiesOnly<T>>): T {
+	buildWithoutRuntimeValidation(this: this & InternalClassBrand<DataPropertiesOnly<T>>): T {
 		const ctor = this.getClassConstructor();
 		const instance: T = new ctor(this._actual as T);
 		// If the class does not assign properties in the constructor, assign them manually
@@ -676,7 +693,7 @@ export class CeriosClassBuilder<T extends object> {
 	 * @returns The frozen class instance
 	 * @throws {Error} If required fields are missing or validation fails
 	 */
-	buildFrozen(this: this & CeriosClassBrand<DataPropertiesOnly<T>>): Readonly<T> {
+	buildFrozen(this: this & InternalClassBrand<DataPropertiesOnly<T>>): Readonly<T> {
 		const missing = this.validateRequiredFields();
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
@@ -704,7 +721,7 @@ export class CeriosClassBuilder<T extends object> {
 	 * @returns The deeply frozen class instance
 	 * @throws {Error} If required fields are missing or validation fails
 	 */
-	buildDeepFrozen(this: this & CeriosClassBrand<DataPropertiesOnly<T>>): DeepReadonly<T> {
+	buildDeepFrozen(this: this & InternalClassBrand<DataPropertiesOnly<T>>): DeepReadonly<T> {
 		const missing = this.validateRequiredFields();
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
@@ -732,7 +749,7 @@ export class CeriosClassBuilder<T extends object> {
 	 * @returns The sealed class instance
 	 * @throws {Error} If required fields are missing or validation fails
 	 */
-	buildSealed(this: this & CeriosClassBrand<DataPropertiesOnly<T>>): T {
+	buildSealed(this: this & InternalClassBrand<DataPropertiesOnly<T>>): T {
 		const missing = this.validateRequiredFields();
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
@@ -760,7 +777,7 @@ export class CeriosClassBuilder<T extends object> {
 	 * @returns The deeply sealed class instance
 	 * @throws {Error} If required fields are missing or validation fails
 	 */
-	buildDeepSealed(this: this & CeriosClassBrand<DataPropertiesOnly<T>>): T {
+	buildDeepSealed(this: this & InternalClassBrand<DataPropertiesOnly<T>>): T {
 		const missing = this.validateRequiredFields();
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);

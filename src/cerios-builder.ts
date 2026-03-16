@@ -9,6 +9,12 @@ import { DeepReadonly } from "./types";
 declare const __brand: unique symbol;
 
 /**
+ * Internal brand for builder type-state tracking.
+ * Prefer helper aliases like `BuilderStep` in public APIs.
+ */
+type InternalBuilderBrand<T> = { [__brand]: T };
+
+/**
  * Type utility for branding builder types with information about which properties have been set.
  * This is used to enforce compile-time safety for required fields in the builder pattern.
  *
@@ -18,7 +24,7 @@ declare const __brand: unique symbol;
  * @template T - The type representing the set of properties that have been set
  * @internal
  */
-export type CeriosBrand<T> = { [__brand]: T };
+export type CeriosBrand<T> = InternalBuilderBrand<T>;
 
 type RootFromPath<P extends string> = P extends `${infer K}.${string}` ? K : P;
 
@@ -35,7 +41,8 @@ type StepKey<T extends object, S extends keyof T | Path<T>> = S extends keyof T
  * @template T - The target object type being built
  * @template S - A root key or path in T
  */
-export type BuilderStep<B, T extends object, S extends keyof T | Path<T>> = B & CeriosBrand<Pick<T, StepKey<T, S>>>;
+export type BuilderStep<B, T extends object, S extends keyof T | Path<T>> = B &
+	InternalBuilderBrand<Pick<T, StepKey<T, S>>>;
 
 /**
  * Helper type for factory methods that return a preconfigured builder state.
@@ -66,7 +73,7 @@ export type BuilderComposer<B, T extends object, Preset extends keyof T | Path<T
 	builder: [Preset] extends [never] ? B : BuilderPreset<B, T, Preset>,
 ) => BuilderPreset<B, T, keyof T>;
 
-type BuilderBaseFromFactoryReturn<R> = R extends (infer B) & CeriosBrand<unknown> ? B : R;
+type BuilderBaseFromFactoryReturn<R> = R extends (infer B) & InternalBuilderBrand<unknown> ? B : R;
 
 type BuilderTargetFromFactoryReturn<R> = BuilderBaseFromFactoryReturn<R> extends CeriosBuilder<infer T> ? T : never;
 
@@ -577,7 +584,7 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @returns The fully built object of type T
 	 * @throws {Error} If any required field is missing at runtime
 	 */
-	build(this: this & CeriosBrand<T>): T {
+	build(this: this & InternalBuilderBrand<T>): T {
 		const missing = this.validateRequiredFields();
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
@@ -600,7 +607,7 @@ export abstract class CeriosBuilder<T extends object> {
 	 *
 	 * @returns The fully built object of type T
 	 */
-	buildWithoutRuntimeValidation(this: this & CeriosBrand<T>): T {
+	buildWithoutRuntimeValidation(this: this & InternalBuilderBrand<T>): T {
 		return this._actual as T;
 	}
 
@@ -729,7 +736,7 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @returns The frozen object of type Readonly<T>
 	 * @throws {Error} If any required field is missing at runtime
 	 */
-	buildFrozen(this: this & CeriosBrand<T>): Readonly<T> {
+	buildFrozen(this: this & InternalBuilderBrand<T>): Readonly<T> {
 		const missing = this.validateRequiredFields();
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
@@ -753,7 +760,7 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @returns The deeply frozen object of type DeepReadonly<T>
 	 * @throws {Error} If any required field is missing at runtime
 	 */
-	buildDeepFrozen(this: this & CeriosBrand<T>): DeepReadonly<T> {
+	buildDeepFrozen(this: this & InternalBuilderBrand<T>): DeepReadonly<T> {
 		const missing = this.validateRequiredFields();
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
@@ -778,7 +785,7 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @returns The sealed object of type T
 	 * @throws {Error} If any required field is missing at runtime
 	 */
-	buildSealed(this: this & CeriosBrand<T>): T {
+	buildSealed(this: this & InternalBuilderBrand<T>): T {
 		const missing = this.validateRequiredFields();
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
@@ -803,7 +810,7 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @returns The deeply sealed object of type T
 	 * @throws {Error} If any required field is missing at runtime
 	 */
-	buildDeepSealed(this: this & CeriosBrand<T>): T {
+	buildDeepSealed(this: this & InternalBuilderBrand<T>): T {
 		const missing = this.validateRequiredFields();
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);

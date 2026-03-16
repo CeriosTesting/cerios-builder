@@ -477,6 +477,93 @@ try {
 }
 ```
 
+### Sharing Methods Across Related Request Builders (POST + PATCH)
+
+When you have related request types, share fluent methods in a generic base builder and keep concrete builders per request type.
+This preserves type-safe chaining and allows each request type to keep its own required-field template.
+
+```typescript
+import { BuilderStep, CeriosBuilder, RequiredFieldsTemplate } from "@cerios/cerios-builder";
+
+type BasePostRequest = {
+	postId: string;
+	title?: string;
+	content?: string;
+	tags?: string[];
+};
+
+type CreatePostRequest = BasePostRequest & {
+	title: string;
+	content: string;
+	authorId: string;
+};
+
+type PatchPostRequest = BasePostRequest & {
+	patchReason: string;
+	notifySubscribers?: boolean;
+};
+
+abstract class BasePostRequestBuilder<T extends BasePostRequest> extends CeriosBuilder<T> {
+	postId(value: string): BuilderStep<this, T, "postId"> {
+		return this.setProperty("postId", value as T["postId"]);
+	}
+
+	title(value: string): BuilderStep<this, T, "title"> {
+		return this.setProperty("title", value as T["title"]);
+	}
+
+	content(value: string): BuilderStep<this, T, "content"> {
+		return this.setProperty("content", value as T["content"]);
+	}
+
+	addTag(value: string): BuilderStep<this, T, "tags"> {
+		return this.addToArrayProperty("tags", value);
+	}
+}
+
+class CreatePostRequestBuilder extends BasePostRequestBuilder<CreatePostRequest> {
+	static create() {
+		return new CreatePostRequestBuilder({});
+	}
+
+	authorId(value: string): BuilderStep<this, CreatePostRequest, "authorId"> {
+		return this.setProperty("authorId", value);
+	}
+}
+
+class PatchPostRequestBuilder extends BasePostRequestBuilder<PatchPostRequest> {
+	static create() {
+		return new PatchPostRequestBuilder({});
+	}
+
+	patchReason(value: string): BuilderStep<this, PatchPostRequest, "patchReason"> {
+		return this.setProperty("patchReason", value);
+	}
+
+	notifySubscribers(value: boolean): BuilderStep<this, PatchPostRequest, "notifySubscribers"> {
+		return this.setProperty("notifySubscribers", value);
+	}
+}
+
+const createRequest = CreatePostRequestBuilder.create()
+	.postId("post-100")
+	.title("Builder patterns")
+	.content("Full create payload")
+	.authorId("author-1")
+	.addTag("typescript")
+	.build();
+
+const patchRequest = PatchPostRequestBuilder.create()
+	.postId("post-100")
+	.patchReason("Fix title")
+	.title("Updated title")
+	.notifySubscribers(true)
+	.build();
+```
+
+The same pattern works with `CeriosClassBuilder`.
+See the class-based test example in `tests/cerios-class-builder/cerios-class-builder-post-patch-extension.test.ts`.
+
 ### Four Ways to Set Up Required Fields for Deeply Nested Properties
 
 When working with deeply nested structures, you have **multiple approaches** to configure required field validation:
