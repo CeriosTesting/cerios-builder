@@ -1,5 +1,42 @@
 # @cerios/cerios-builder
 
+## 1.6.0
+
+### Minor Changes
+
+- b2d8ebd: Add custom validation and optional-property management capabilities to both `CeriosBuilder` and `CeriosClassBuilder`.
+  - Add `addValidator()` support with validator execution on validated build paths and custom error messages.
+  - Add optional property utilities: `removeOptionalProperty()` and `clearOptionalProperties()`.
+  - Add/improve cloning and object-instance factory flows (`clone()` / `from(...)`) with immutability-focused behavior.
+  - Export additional public types (`ClassPath`, `OptionalKeys`) for stronger typing in class/nested path use cases.
+  - Expand documentation and test coverage for validators, property removal, cloning, nested properties, and class-builder array operations.
+
+### Patch Changes
+
+- 7cc1e85: Deprecate static required-field templates in favor of constructor- and instance-level required field configuration.
+  - Deprecate `CeriosBuilder.requiredTemplate` and recommend `super(data, requiredFields)` or `setRequiredFields()`.
+  - Deprecate `CeriosClassBuilder.requiredDataProperties` and recommend constructor-provided required fields or `setRequiredFields()`.
+  - Add support for passing required fields as a readonly array into `CeriosClassBuilder` constructor (while keeping `Set<string>` compatibility).
+  - Update `CeriosClassBuilder.clearOptionalProperties()` to use the combined required-field template (static defaults + instance-level fields), so constructor/runtime required fields are now honored.
+  - Add tests covering constructor-defined required fields for optional-property clearing in both builder variants.
+
+- 7cc1e85: Improve fluent method return typing ergonomics for both object and class builders.
+  - Add and use a unified `BuilderStep` helper for `CeriosBuilder` custom methods, including nested path setters.
+  - Add and export `BuilderPreset`, `BuilderComposer`, and `BuilderComposerFromFactory` for cleaner object-builder factory/callback typing.
+  - Add and export `ClassBuilderStep` for `CeriosClassBuilder` custom methods with support for direct keys and nested paths.
+  - Add and export `ClassBuilderPreset`, `ClassBuilderComposer`, and `ClassBuilderComposerFromFactory` for cleaner class-builder factory/callback typing.
+  - Align internal builder method return types with the new helper types for consistency.
+  - Deprecate direct consumer usage of `CeriosBrand` and `CeriosClassBrand` (kept exported for backward compatibility).
+  - Deprecate direct consumer usage of `BuilderType` (kept exported for backward compatibility).
+  - Update README examples to document modern helper-based typing patterns for both builder styles.
+
+- cb8b70b: Improve type ergonomics for shared generic builder base classes and reduce deprecated-brand usage internally.
+  - Improve `CeriosClassBuilder` type inference for fluent methods in generic base builders so key suggestions and chaining work more reliably without repetitive casts.
+  - Expand `ClassBuilderStep` key support while continuing to track data-only fields in the branded type state.
+  - Introduce internal non-deprecated branding (`InternalClassBrand`, `InternalBuilderBrand`) and switch internal type plumbing to use these aliases.
+  - Keep `CeriosBrand` and `CeriosClassBrand` exported as backward-compatible deprecated aliases.
+  - Add coverage and README examples for shared POST/PATCH builder patterns across both object and class builders.
+
 ## 1.5.0
 
 ### Minor Changes
