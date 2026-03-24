@@ -1,3 +1,4 @@
+// oxlint-disable typescript/no-deprecated
 import type { DeepReadonly } from "./types";
 
 /**
@@ -11,15 +12,91 @@ export type ClassConstructor<T> = new (data?: Partial<T>) => T;
  * This allows compile-time validation to work properly with classes.
  */
 type DataPropertiesOnly<T> = {
-	[K in keyof T as T[K] extends (...args: any[]) => any ? never : K]: T[K];
+	[K in keyof T as T[K] extends (...args: unknown[]) => unknown ? never : K]: T[K];
+};
+
+/**
+ * Internal brand for class-builder type-state tracking.
+ * Prefer helper aliases like `ClassBuilderStep` in public APIs.
+ */
+type InternalClassBrand<T> = {
+	readonly __classBuilderBrand: T;
 };
 
 /**
  * Brand type specifically for class builders that only tracks data properties.
+ *
+ * @deprecated Prefer `ClassBuilderStep`, `ClassBuilderPreset`, `ClassBuilderComposer`,
+ * or `ClassBuilderComposerFromFactory` in user-facing APIs.
+ * This type remains exported for backward compatibility.
  */
-export type CeriosClassBrand<T> = {
-	readonly __classBuilderBrand: T;
-};
+export type CeriosClassBrand<T> = InternalClassBrand<T>;
+
+type RootFromPath<P extends string> = P extends `${infer K}.${string}` ? K : P;
+
+type ClassStepKey<T extends object, S extends keyof T | ClassPath<T>> = S extends keyof T
+	? Extract<S, keyof DataPropertiesOnly<T>>
+	: Extract<RootFromPath<S & string>, keyof DataPropertiesOnly<T>>;
+
+/**
+ * Helper type for fluent class-builder methods.
+ * Supports both direct data-property keys ("name") and nested paths ("address.city").
+ *
+ * @template B - The current builder instance type (usually `this`)
+ * @template T - The class type being built
+ * @template S - A data-property key or class path
+ */
+export type ClassBuilderStep<B, T extends object, S extends keyof T | ClassPath<T>> = B &
+	InternalClassBrand<Pick<DataPropertiesOnly<T>, ClassStepKey<T, S>>>;
+
+/**
+ * Helper type for factory methods that return a preconfigured class-builder state.
+ *
+ * @template B - The class-builder instance type
+ * @template T - The class type being built
+ * @template S - A data-property key or class path (or union) configured by the factory
+ */
+export type ClassBuilderPreset<
+	B,
+	T extends object,
+	S extends keyof DataPropertiesOnly<T> | ClassPath<T>,
+> = ClassBuilderStep<B, T, S>;
+
+/**
+ * Helper type for callback-based class-builder composition APIs.
+ *
+ * @template B - The class-builder instance type
+ * @template T - The class type being built
+ * @template Preset - Optional preset key/path union already configured before callback execution
+ */
+export type ClassBuilderComposer<
+	B,
+	T extends object,
+	Preset extends keyof DataPropertiesOnly<T> | ClassPath<T> = never,
+> = (
+	builder: [Preset] extends [never] ? B : ClassBuilderPreset<B, T, Preset>,
+) => ClassBuilderPreset<B, T, keyof DataPropertiesOnly<T>>;
+
+type ClassBuilderBaseFromFactoryReturn<R> = R extends (infer B) & InternalClassBrand<unknown> ? B : R;
+
+type ClassBuilderTargetFromFactoryReturn<R> =
+	ClassBuilderBaseFromFactoryReturn<R> extends CeriosClassBuilder<infer T> ? T : never;
+
+/**
+ * Helper type for composition callbacks based on a class-builder factory method.
+ *
+ * This infers both the callback input type (including presets/defaults) and the
+ * fully-buildable output type directly from the factory return type.
+ *
+ * @template F - A class-builder factory function type (for example: `typeof MyBuilder.createWithDefaults`)
+ */
+export type ClassBuilderComposerFromFactory<F extends (...args: never[]) => unknown> = (
+	builder: ReturnType<F>,
+) => ClassBuilderPreset<
+	ClassBuilderBaseFromFactoryReturn<ReturnType<F>>,
+	ClassBuilderTargetFromFactoryReturn<ReturnType<F>>,
+	keyof DataPropertiesOnly<ClassBuilderTargetFromFactoryReturn<ReturnType<F>>>
+>;
 
 /**
  * Helper type to represent a path through an object structure for class properties.
@@ -28,8 +105,8 @@ export type CeriosClassBrand<T> = {
  * @internal
  */
 type PathImpl<T, K extends keyof DataPropertiesOnly<T> = keyof DataPropertiesOnly<T>> = K extends string | number
-	? NonNullable<DataPropertiesOnly<T>[K]> extends Record<string, any>
-		? NonNullable<DataPropertiesOnly<T>[K]> extends Array<any>
+	? NonNullable<DataPropertiesOnly<T>[K]> extends object
+		? NonNullable<DataPropertiesOnly<T>[K]> extends Array<unknown>
 			? K
 			: K | `${K}.${PathImpl<NonNullable<DataPropertiesOnly<T>[K]>> & string}`
 		: K
@@ -54,20 +131,6 @@ type ClassPathValue<T, P> = P extends keyof DataPropertiesOnly<T>
 		? K extends keyof DataPropertiesOnly<T>
 			? ClassPathValue<NonNullable<DataPropertiesOnly<T>[K]>, Rest>
 			: never
-		: never;
-
-/**
- * Extract the root key from a path, ensuring it's valid for type T.
- * @template P - The path string
- * @template T - The class type
- * @internal
- */
-type RootKey<P extends string, T = any> = P extends `${infer K}.${string}`
-	? K extends keyof DataPropertiesOnly<T>
-		? K
-		: never
-	: P extends keyof DataPropertiesOnly<T>
-		? P
 		: never;
 
 /**
@@ -105,6 +168,9 @@ export class CeriosClassBuilder<T extends object> {
 	 * Optional static template defining which data properties are required.
 	 * Subclasses can set this to specify required fields, which will be preserved
 	 * when calling clearOptionalProperties().
+	 *
+	 * @deprecated Prefer passing required fields via subclass constructor and `super(...)`
+	 * or setting them at runtime with `setRequiredFields()`.
 	 *
 	 * @example
 	 * ```typescript
@@ -145,13 +211,13 @@ export class CeriosClassBuilder<T extends object> {
 	 * @param classConstructor - The class constructor to use for building
 	 * @param data - Optional initial data
 	 * @param _validators - Optional array of validators to preserve across instances
-	 * @param _requiredFields - Optional set of required fields to preserve across instances
+	 * @param _requiredFields - Optional required fields to preserve across instances
 	 */
 	protected constructor(
 		classConstructor: ClassConstructor<T>,
 		data: Partial<T> = {},
 		_validators?: Array<(obj: Partial<T>) => boolean | string>,
-		_requiredFields?: Set<string>
+		_requiredFields?: ReadonlyArray<ClassPath<T>> | Set<string>,
 	) {
 		this._classConstructor = classConstructor;
 		this._actual = data;
@@ -159,7 +225,8 @@ export class CeriosClassBuilder<T extends object> {
 			this._validators = [..._validators];
 		}
 		if (_requiredFields) {
-			this._requiredFields = new Set(_requiredFields);
+			this._requiredFields =
+				_requiredFields instanceof Set ? new Set(_requiredFields) : new Set([..._requiredFields] as string[]);
 		}
 	}
 
@@ -181,7 +248,7 @@ export class CeriosClassBuilder<T extends object> {
 			classConstructor: ClassConstructor<T>,
 			data: Partial<T>,
 			validators?: Array<(obj: Partial<T>) => boolean | string>,
-			requiredFields?: Set<string>
+			requiredFields?: ReadonlyArray<ClassPath<T>> | Set<string>,
 		) => this;
 		return new BuilderClass(this._classConstructor, data, this._validators, this._requiredFields);
 	}
@@ -196,13 +263,25 @@ export class CeriosClassBuilder<T extends object> {
 	 */
 	protected setProperty<K extends keyof DataPropertiesOnly<T>>(
 		key: K,
-		value: DataPropertiesOnly<T>[K]
-	): this & CeriosClassBrand<Pick<DataPropertiesOnly<T>, K>> {
+		value: DataPropertiesOnly<T>[K],
+	): ClassBuilderStep<this, T, K>;
+	/**
+	 * Fallback overload for generic subclass scenarios where TypeScript cannot
+	 * resolve `keyof DataPropertiesOnly<T>` from a literal key.
+	 * This keeps fluent APIs ergonomic in shared generic base builders.
+	 * @protected
+	 */
+	protected setProperty<K extends keyof T & string>(key: K, value: T[K]): ClassBuilderStep<this, T, K>;
+	protected setProperty<K extends keyof DataPropertiesOnly<T>>(
+		key: K,
+		value: DataPropertiesOnly<T>[K],
+	): ClassBuilderStep<this, T, K>;
+	protected setProperty<K extends keyof T & string>(key: K, value: T[K]): ClassBuilderStep<this, T, K> {
 		const newBuilder = this.createBuilder({
 			...this._actual,
 			[key]: value,
 		} as Partial<T>);
-		return newBuilder as this & CeriosClassBrand<Pick<DataPropertiesOnly<T>, K>>;
+		return newBuilder as ClassBuilderStep<this, T, K>;
 	}
 
 	/**
@@ -213,13 +292,13 @@ export class CeriosClassBuilder<T extends object> {
 	 * @protected
 	 */
 	protected setProperties<K extends keyof DataPropertiesOnly<T>>(
-		props: Pick<DataPropertiesOnly<T>, K>
-	): this & CeriosClassBrand<Pick<DataPropertiesOnly<T>, K>> {
+		props: Pick<DataPropertiesOnly<T>, K>,
+	): ClassBuilderStep<this, T, K> {
 		const newBuilder = this.createBuilder({
 			...this._actual,
 			...props,
 		} as Partial<T>);
-		return newBuilder as this & CeriosClassBrand<Pick<DataPropertiesOnly<T>, K>>;
+		return newBuilder as ClassBuilderStep<this, T, K>;
 	}
 
 	/**
@@ -251,26 +330,27 @@ export class CeriosClassBuilder<T extends object> {
 	 */
 	protected setNestedProperty<P extends ClassPath<T>>(
 		path: P,
-		value: ClassPathValue<T, P>
-	): this & CeriosClassBrand<Pick<DataPropertiesOnly<T>, RootKey<P & string, T>>> {
+		value: ClassPathValue<T, P>,
+	): ClassBuilderStep<this, T, P> {
 		const keys = (path as string).split(".");
 		const newActual = this.deepClone(this._actual);
 
-		let current: any = newActual;
+		let current = newActual as Record<string, unknown>;
 		for (let i = 0; i < keys.length - 1; i++) {
 			const key = keys[i];
-			if (!(key in current) || typeof current[key] !== "object" || current[key] === null) {
+			const existing = current[key];
+			if (!(key in current) || typeof existing !== "object" || existing === null) {
 				current[key] = {};
 			} else {
-				current[key] = this.deepClone(current[key]);
+				current[key] = this.deepClone(existing);
 			}
-			current = current[key];
+			current = current[key] as Record<string, unknown>;
 		}
 
-		current[keys[keys.length - 1]] = value;
+		current[keys[keys.length - 1]] = value as unknown;
 
 		const newBuilder = this.createBuilder(newActual);
-		return newBuilder as this & CeriosClassBrand<Pick<DataPropertiesOnly<T>, RootKey<P & string, T>>>;
+		return newBuilder as ClassBuilderStep<this, T, P>;
 	}
 
 	/**
@@ -294,7 +374,7 @@ export class CeriosClassBuilder<T extends object> {
 			classConstructor: ClassConstructor<T>,
 			data: Partial<T>,
 			validators?: Array<(obj: Partial<T>) => boolean | string>,
-			requiredFields?: Set<string>
+			requiredFields?: ReadonlyArray<ClassPath<T>> | Set<string>,
 		) => this;
 		return new BuilderClass(this._classConstructor, this._actual, this._validators, new Set([...fields] as string[]));
 	}
@@ -306,7 +386,7 @@ export class CeriosClassBuilder<T extends object> {
 	 */
 	private getRequiredTemplate(): ReadonlyArray<string> {
 		const ctor = this.constructor as typeof CeriosClassBuilder;
-		const staticFields = ctor.requiredDataProperties || [];
+		const staticFields = ctor.requiredDataProperties ?? [];
 		const instanceFields = Array.from(this._requiredFields);
 
 		// If instance fields are explicitly set and not empty, combine with static
@@ -327,15 +407,15 @@ export class CeriosClassBuilder<T extends object> {
 
 		for (const path of requiredPaths) {
 			const keys = path.split(".");
-			let current: any = this._actual;
+			let current: unknown = this._actual;
 
 			for (let i = 0; i < keys.length; i++) {
 				const key = keys[i];
-				if (current === null || current === undefined || !(key in current)) {
+				if (current === null || current === undefined || typeof current !== "object" || !(key in current)) {
 					missing.push(path);
 					break;
 				}
-				current = current[key];
+				current = (current as Record<string, unknown>)[key];
 			}
 
 			// Check if the final value is null or undefined
@@ -372,13 +452,13 @@ export class CeriosClassBuilder<T extends object> {
 			classConstructor: ClassConstructor<T>,
 			data: Partial<T>,
 			validators?: Array<(obj: Partial<T>) => boolean | string>,
-			requiredFields?: Set<string>
+			requiredFields?: ReadonlyArray<ClassPath<T>> | Set<string>,
 		) => this;
 		return new BuilderClass(
 			this._classConstructor,
 			this._actual,
 			[...this._validators, validator],
-			this._requiredFields
+			this._requiredFields,
 		);
 	}
 
@@ -432,8 +512,8 @@ export class CeriosClassBuilder<T extends object> {
 
 	/**
 	 * Clears all optional properties from the builder, keeping only required data properties.
-	 * Uses the static `requiredDataProperties` array to determine which properties to preserve.
-	 * If `requiredDataProperties` is not defined, all properties are cleared.
+	 * Uses the combined required-field template from static defaults and instance-level fields.
+	 * If no required fields are configured, all properties are cleared.
 	 *
 	 * @returns A new builder instance with only required properties
 	 *
@@ -458,8 +538,7 @@ export class CeriosClassBuilder<T extends object> {
 	 * ```
 	 */
 	clearOptionalProperties(): this {
-		const ctor = this.constructor as typeof CeriosClassBuilder;
-		const requiredProps = ctor.requiredDataProperties || [];
+		const requiredProps = this.getRequiredTemplate();
 		const newData: Partial<T> = {};
 
 		// Preserve only properties that are in the required list
@@ -483,20 +562,20 @@ export class CeriosClassBuilder<T extends object> {
 	 */
 	addToArrayProperty<
 		K extends {
-			[P in keyof DataPropertiesOnly<T>]: NonNullable<DataPropertiesOnly<T>[P]> extends Array<any> ? P : never;
+			[P in keyof DataPropertiesOnly<T>]: NonNullable<DataPropertiesOnly<T>[P]> extends Array<unknown> ? P : never;
 		}[keyof DataPropertiesOnly<T>],
 		V extends DataPropertiesOnly<T>[K] extends Array<infer U>
 			? U
 			: DataPropertiesOnly<T>[K] extends Array<infer U> | undefined
 				? U
 				: never,
-	>(key: K, value: V): this & CeriosClassBrand<Pick<DataPropertiesOnly<T>, K>> {
+	>(key: K, value: V): ClassBuilderStep<this, T, K> {
 		const currentArray = (this._actual[key as keyof T] as Array<V> | undefined) ?? [];
 		const newBuilder = this.createBuilder({
 			...this._actual,
 			[key]: [...currentArray, value],
 		} as Partial<T>);
-		return newBuilder as this & CeriosClassBrand<Pick<DataPropertiesOnly<T>, K>>;
+		return newBuilder as ClassBuilderStep<this, T, K>;
 	}
 
 	/**
@@ -507,7 +586,7 @@ export class CeriosClassBuilder<T extends object> {
 	 * @returns The fully built and validated class instance
 	 * @throws {Error} If required fields are missing or validation fails
 	 */
-	build(this: this & CeriosClassBrand<DataPropertiesOnly<T>>): T {
+	build(this: this & InternalClassBrand<DataPropertiesOnly<T>>): T {
 		const missing = this.validateRequiredFields();
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
@@ -522,7 +601,7 @@ export class CeriosClassBuilder<T extends object> {
 		const instance: T = new ctor(this._actual as T);
 		// If the class does not assign properties in the constructor, assign them manually
 		const dataKeys = Object.keys(this._actual) as (keyof T)[];
-		const needsAssign = dataKeys.some(key => instance[key] === undefined && this._actual[key] !== undefined);
+		const needsAssign = dataKeys.some((key) => instance[key] === undefined && this._actual[key] !== undefined);
 		if (needsAssign) {
 			Object.assign(instance, this._actual);
 		}
@@ -538,12 +617,12 @@ export class CeriosClassBuilder<T extends object> {
 	 *
 	 * @returns The fully built class instance
 	 */
-	buildWithoutRuntimeValidation(this: this & CeriosClassBrand<DataPropertiesOnly<T>>): T {
+	buildWithoutRuntimeValidation(this: this & InternalClassBrand<DataPropertiesOnly<T>>): T {
 		const ctor = this.getClassConstructor();
 		const instance: T = new ctor(this._actual as T);
 		// If the class does not assign properties in the constructor, assign them manually
 		const dataKeys = Object.keys(this._actual) as (keyof T)[];
-		const needsAssign = dataKeys.some(key => instance[key] === undefined && this._actual[key] !== undefined);
+		const needsAssign = dataKeys.some((key) => instance[key] === undefined && this._actual[key] !== undefined);
 		if (needsAssign) {
 			Object.assign(instance, this._actual);
 		}
@@ -575,7 +654,7 @@ export class CeriosClassBuilder<T extends object> {
 		const instance: T = new ctor(this._actual as T);
 		// If the class does not assign properties in the constructor, assign them manually
 		const dataKeys = Object.keys(this._actual) as (keyof T)[];
-		const needsAssign = dataKeys.some(key => instance[key] === undefined && this._actual[key] !== undefined);
+		const needsAssign = dataKeys.some((key) => instance[key] === undefined && this._actual[key] !== undefined);
 		if (needsAssign) {
 			Object.assign(instance, this._actual);
 		}
@@ -592,7 +671,7 @@ export class CeriosClassBuilder<T extends object> {
 		const ctor = this.getClassConstructor();
 		const instance: T = new ctor(this._actual as T);
 		const dataKeys = Object.keys(this._actual) as (keyof T)[];
-		const needsAssign = dataKeys.some(key => instance[key] === undefined && this._actual[key] !== undefined);
+		const needsAssign = dataKeys.some((key) => instance[key] === undefined && this._actual[key] !== undefined);
 		if (needsAssign) {
 			Object.assign(instance, this._actual);
 		}
@@ -614,7 +693,7 @@ export class CeriosClassBuilder<T extends object> {
 	 * @returns The frozen class instance
 	 * @throws {Error} If required fields are missing or validation fails
 	 */
-	buildFrozen(this: this & CeriosClassBrand<DataPropertiesOnly<T>>): Readonly<T> {
+	buildFrozen(this: this & InternalClassBrand<DataPropertiesOnly<T>>): Readonly<T> {
 		const missing = this.validateRequiredFields();
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
@@ -629,7 +708,7 @@ export class CeriosClassBuilder<T extends object> {
 		const instance: T = new ctor(this._actual as T);
 		// If the class does not assign properties in the constructor, assign them manually
 		const dataKeys = Object.keys(this._actual) as (keyof T)[];
-		const needsAssign = dataKeys.some(key => instance[key] === undefined && this._actual[key] !== undefined);
+		const needsAssign = dataKeys.some((key) => instance[key] === undefined && this._actual[key] !== undefined);
 		if (needsAssign) {
 			Object.assign(instance, this._actual);
 		}
@@ -642,7 +721,7 @@ export class CeriosClassBuilder<T extends object> {
 	 * @returns The deeply frozen class instance
 	 * @throws {Error} If required fields are missing or validation fails
 	 */
-	buildDeepFrozen(this: this & CeriosClassBrand<DataPropertiesOnly<T>>): DeepReadonly<T> {
+	buildDeepFrozen(this: this & InternalClassBrand<DataPropertiesOnly<T>>): DeepReadonly<T> {
 		const missing = this.validateRequiredFields();
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
@@ -657,7 +736,7 @@ export class CeriosClassBuilder<T extends object> {
 		const instance: T = new ctor(this._actual as T);
 		// If the class does not assign properties in the constructor, assign them manually
 		const dataKeys = Object.keys(this._actual) as (keyof T)[];
-		const needsAssign = dataKeys.some(key => instance[key] === undefined && this._actual[key] !== undefined);
+		const needsAssign = dataKeys.some((key) => instance[key] === undefined && this._actual[key] !== undefined);
 		if (needsAssign) {
 			Object.assign(instance, this._actual);
 		}
@@ -670,7 +749,7 @@ export class CeriosClassBuilder<T extends object> {
 	 * @returns The sealed class instance
 	 * @throws {Error} If required fields are missing or validation fails
 	 */
-	buildSealed(this: this & CeriosClassBrand<DataPropertiesOnly<T>>): T {
+	buildSealed(this: this & InternalClassBrand<DataPropertiesOnly<T>>): T {
 		const missing = this.validateRequiredFields();
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
@@ -685,7 +764,7 @@ export class CeriosClassBuilder<T extends object> {
 		const instance: T = new ctor(this._actual as T);
 		// If the class does not assign properties in the constructor, assign them manually
 		const dataKeys = Object.keys(this._actual) as (keyof T)[];
-		const needsAssign = dataKeys.some(key => instance[key] === undefined && this._actual[key] !== undefined);
+		const needsAssign = dataKeys.some((key) => instance[key] === undefined && this._actual[key] !== undefined);
 		if (needsAssign) {
 			Object.assign(instance, this._actual);
 		}
@@ -698,7 +777,7 @@ export class CeriosClassBuilder<T extends object> {
 	 * @returns The deeply sealed class instance
 	 * @throws {Error} If required fields are missing or validation fails
 	 */
-	buildDeepSealed(this: this & CeriosClassBrand<DataPropertiesOnly<T>>): T {
+	buildDeepSealed(this: this & InternalClassBrand<DataPropertiesOnly<T>>): T {
 		const missing = this.validateRequiredFields();
 		if (missing.length > 0) {
 			throw new Error(`Missing required fields: ${missing.join(", ")}. Please set these fields before calling build.`);
@@ -713,7 +792,7 @@ export class CeriosClassBuilder<T extends object> {
 		const instance: T = new ctor(this._actual as T);
 		// If the class does not assign properties in the constructor, assign them manually
 		const dataKeys = Object.keys(this._actual) as (keyof T)[];
-		const needsAssign = dataKeys.some(key => instance[key] === undefined && this._actual[key] !== undefined);
+		const needsAssign = dataKeys.some((key) => instance[key] === undefined && this._actual[key] !== undefined);
 		if (needsAssign) {
 			Object.assign(instance, this._actual);
 		}
@@ -728,8 +807,8 @@ export class CeriosClassBuilder<T extends object> {
 		if (obj === null || typeof obj !== "object") {
 			return obj;
 		}
-		Object.getOwnPropertyNames(obj).forEach(prop => {
-			const value = (obj as any)[prop];
+		Object.getOwnPropertyNames(obj).forEach((prop) => {
+			const value = (obj as Record<string, unknown>)[prop];
 			if (value !== null && (typeof value === "object" || typeof value === "function")) {
 				this.deepFreeze(value);
 			}
@@ -745,8 +824,8 @@ export class CeriosClassBuilder<T extends object> {
 		if (obj === null || typeof obj !== "object") {
 			return obj;
 		}
-		Object.getOwnPropertyNames(obj).forEach(prop => {
-			const value = (obj as any)[prop];
+		Object.getOwnPropertyNames(obj).forEach((prop) => {
+			const value = (obj as Record<string, unknown>)[prop];
 			if (value !== null && (typeof value === "object" || typeof value === "function")) {
 				this.deepSeal(value);
 			}
@@ -763,13 +842,13 @@ export class CeriosClassBuilder<T extends object> {
 			return obj;
 		}
 		if (Array.isArray(obj)) {
-			return obj.map(item => this.deepClone(item)) as any;
+			return obj.map((item) => this.deepClone(item)) as unknown as V;
 		}
-		const cloned: any = {};
+		const cloned: Record<string, unknown> = {};
 		for (const key of Object.keys(obj)) {
-			cloned[key] = this.deepClone((obj as any)[key]);
+			cloned[key] = this.deepClone((obj as Record<string, unknown>)[key]);
 		}
-		return cloned;
+		return cloned as V;
 	}
 
 	/**
@@ -787,16 +866,13 @@ export class CeriosClassBuilder<T extends object> {
 	 * const updated = builder.setProperty('age', 31).build();
 	 * ```
 	 */
-	static from<T extends object>(
-		this: new (
-			classConstructor: ClassConstructor<T>,
-			data: Partial<T>
-		) => any,
+	static from<T extends object, B extends new (classConstructor: ClassConstructor<T>, data: Partial<T>) => unknown>(
+		this: B,
 		classConstructor: ClassConstructor<T>,
-		instance: T
-	): InstanceType<typeof this> {
+		instance: T,
+	): InstanceType<B> {
 		const clonedData = CeriosClassBuilder.deepCloneStatic(instance);
-		return new this(classConstructor, clonedData);
+		return new this(classConstructor, clonedData) as InstanceType<B>;
 	}
 
 	/**
@@ -826,12 +902,12 @@ export class CeriosClassBuilder<T extends object> {
 			return obj;
 		}
 		if (Array.isArray(obj)) {
-			return obj.map(item => this.deepCloneStatic(item)) as any;
+			return obj.map((item) => this.deepCloneStatic(item)) as unknown as V;
 		}
-		const cloned: any = {};
+		const cloned: Record<string, unknown> = {};
 		for (const key of Object.keys(obj)) {
-			cloned[key] = this.deepCloneStatic((obj as any)[key]);
+			cloned[key] = this.deepCloneStatic((obj as Record<string, unknown>)[key]);
 		}
-		return cloned;
+		return cloned as V;
 	}
 }

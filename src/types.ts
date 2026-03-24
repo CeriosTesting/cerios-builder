@@ -3,17 +3,19 @@
  * This is useful when you want to accept a builder with some fields already set
  * without manually specifying which fields are set.
  *
+ * @deprecated Prefer `BuilderComposerFromFactory` (or `ClassBuilderComposerFromFactory`)
+ * for callback-based APIs. This alias remains for backward compatibility.
+ *
  * @template B - A builder instance type
  *
  * @example
  * ```typescript
- * // Instead of:
- * function withAddress(
- *   builder: AddressBuilder & CeriosBrand<Pick<Address, "city" | "country">>
- * ) { ... }
+ * import { BuilderComposerFromFactory } from "@cerios/cerios-builder";
  *
- * // You can write:
- * function withAddress(builder: BuilderType<ReturnType<typeof AddressBuilder.createWithDefaults>>) { ... }
+ * // Preferred modern pattern:
+ * function withAddressDefaults(
+ *   builderFn: BuilderComposerFromFactory<typeof AddressBuilder.createWithDefaults>
+ * ) { ... }
  * ```
  */
 export type BuilderType<B> = B;
@@ -36,7 +38,7 @@ export type OptionalKeys<T> = {
  */
 export type DeepReadonly<T> = T extends (infer R)[]
 	? DeepReadonlyArray<R>
-	: T extends (...args: any[]) => any
+	: T extends (...args: unknown[]) => unknown
 		? T
 		: T extends object
 			? DeepReadonlyObject<T>

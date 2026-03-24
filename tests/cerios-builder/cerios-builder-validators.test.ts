@@ -1,4 +1,6 @@
-import { CeriosBuilder } from "../../src/cerios-builder";
+import { describe, expect, it } from "vitest";
+
+import { BuilderStep, CeriosBuilder } from "../../src/cerios-builder";
 
 interface Person {
 	name: string;
@@ -10,25 +12,25 @@ interface Person {
 class PersonBuilder extends CeriosBuilder<Person> {
 	constructor(
 		data: Partial<Person> = {},
-		requiredFields?: ReadonlyArray<string>,
-		validators?: Array<(obj: Partial<Person>) => boolean | string>
+		requiredFields?: ReadonlyArray<keyof Person>,
+		validators?: Array<(obj: Partial<Person>) => boolean | string>,
 	) {
-		super(data, requiredFields as any, validators);
+		super(data, requiredFields as ReadonlyArray<keyof Person>, validators);
 	}
 
-	setName(value: string) {
+	setName(value: string): BuilderStep<this, Person, "name"> {
 		return this.setProperty("name", value);
 	}
 
-	setAge(value: number) {
+	setAge(value: number): BuilderStep<this, Person, "age"> {
 		return this.setProperty("age", value);
 	}
 
-	setEmail(value: string) {
+	setEmail(value: string): BuilderStep<this, Person, "email"> {
 		return this.setProperty("email", value);
 	}
 
-	setSalary(value: number) {
+	setSalary(value: number): BuilderStep<this, Person, "salary"> {
 		return this.setProperty("salary", value);
 	}
 }
@@ -39,7 +41,7 @@ describe("CeriosBuilder - Custom Validators", () => {
 			const builder = new PersonBuilder()
 				.setName("John")
 				.setAge(25)
-				.addValidator(obj => obj.age !== undefined && obj.age >= 18);
+				.addValidator((obj) => obj.age !== undefined && obj.age >= 18);
 
 			expect(() => builder.build()).not.toThrow();
 		});
@@ -48,7 +50,7 @@ describe("CeriosBuilder - Custom Validators", () => {
 			const builder = new PersonBuilder()
 				.setName("John")
 				.setAge(15)
-				.addValidator(obj => obj.age !== undefined && obj.age >= 18);
+				.addValidator((obj) => obj.age !== undefined && obj.age >= 18);
 
 			expect(() => builder.build()).toThrow("Validation failed");
 		});
@@ -57,7 +59,7 @@ describe("CeriosBuilder - Custom Validators", () => {
 			const builder = new PersonBuilder()
 				.setName("John")
 				.setAge(15)
-				.addValidator(obj => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older");
+				.addValidator((obj) => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older");
 
 			expect(() => builder.build()).toThrow("Age must be 18 or older");
 		});
@@ -67,8 +69,8 @@ describe("CeriosBuilder - Custom Validators", () => {
 				.setName("John")
 				.setAge(20)
 				.setEmail("invalid-email")
-				.addValidator(obj => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older")
-				.addValidator(obj => (obj.email?.includes("@") ?? true) || "Invalid email format");
+				.addValidator((obj) => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older")
+				.addValidator((obj) => (obj.email?.includes("@") ?? true) || "Invalid email format");
 
 			expect(() => builder.build()).toThrow("Invalid email format");
 		});
@@ -78,8 +80,8 @@ describe("CeriosBuilder - Custom Validators", () => {
 				.setName("John")
 				.setAge(25)
 				.setEmail("john@example.com")
-				.addValidator(obj => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older")
-				.addValidator(obj => (obj.email?.includes("@") ?? true) || "Invalid email format");
+				.addValidator((obj) => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older")
+				.addValidator((obj) => (obj.email?.includes("@") ?? true) || "Invalid email format");
 
 			expect(() => builder.build()).not.toThrow();
 			const person = builder.build();
@@ -91,16 +93,12 @@ describe("CeriosBuilder - Custom Validators", () => {
 				.setName("John")
 				.setAge(15)
 				.setEmail("invalid-email")
-				.addValidator(obj => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older")
-				.addValidator(obj => (obj.email?.includes("@") ?? true) || "Invalid email format");
+				.addValidator((obj) => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older")
+				.addValidator((obj) => (obj.email?.includes("@") ?? true) || "Invalid email format");
 
-			try {
-				builder.build();
-				fail("Should have thrown validation error");
-			} catch (error: any) {
-				expect(error.message).toContain("Age must be 18 or older");
-				expect(error.message).toContain("Invalid email format");
-			}
+			expect(() => builder.build()).toThrow(
+				/Age must be 18 or older[\s\S]*Invalid email format|Invalid email format[\s\S]*Age must be 18 or older/,
+			);
 		});
 
 		it("should work with complex validations", () => {
@@ -108,12 +106,12 @@ describe("CeriosBuilder - Custom Validators", () => {
 				.setName("John")
 				.setAge(25)
 				.setSalary(50000)
-				.addValidator(obj => {
+				.addValidator((obj) => {
 					if (!obj.name) return "Name is required";
 					if (obj.name.length < 2) return "Name must be at least 2 characters";
 					return true;
 				})
-				.addValidator(obj => {
+				.addValidator((obj) => {
 					if (obj.salary !== undefined && obj.salary < 0) return "Salary cannot be negative";
 					return true;
 				});
@@ -123,7 +121,7 @@ describe("CeriosBuilder - Custom Validators", () => {
 
 		it("should preserve validators across builder chain", () => {
 			const builder1 = new PersonBuilder().addValidator(
-				obj => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older"
+				(obj) => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older",
 			);
 
 			const builder2 = builder1.setName("John").setAge(20);
@@ -137,7 +135,7 @@ describe("CeriosBuilder - Custom Validators", () => {
 			const builder1 = new PersonBuilder()
 				.setName("John")
 				.setAge(25)
-				.addValidator(obj => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older");
+				.addValidator((obj) => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older");
 
 			const builder2 = builder1.setAge(15);
 
@@ -148,7 +146,7 @@ describe("CeriosBuilder - Custom Validators", () => {
 			const builder = new PersonBuilder()
 				.setName("John")
 				.setAge(15)
-				.addValidator(obj => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older");
+				.addValidator((obj) => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older");
 
 			expect(() => builder.buildUnsafe()).not.toThrow();
 			const person = builder.buildUnsafe();
@@ -159,7 +157,7 @@ describe("CeriosBuilder - Custom Validators", () => {
 			const builder = new PersonBuilder()
 				.setName("John")
 				.setAge(15)
-				.addValidator(obj => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older");
+				.addValidator((obj) => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older");
 
 			expect(() => builder.buildWithoutCompileTimeValidation()).toThrow("Age must be 18 or older");
 		});
@@ -168,7 +166,7 @@ describe("CeriosBuilder - Custom Validators", () => {
 			const builder1 = new PersonBuilder()
 				.setName("John")
 				.setAge(25)
-				.addValidator(obj => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older");
+				.addValidator((obj) => (obj.age !== undefined && obj.age >= 18) || "Age must be 18 or older");
 
 			const builder2 = builder1.clone().setAge(15);
 
@@ -181,7 +179,7 @@ describe("CeriosBuilder - Custom Validators", () => {
 				.setAge(25)
 				.setEmail("john@example.com")
 				.setSalary(100000)
-				.addValidator(obj => {
+				.addValidator((obj) => {
 					if (obj.age && obj.salary) {
 						const minSalary = obj.age * 1000;
 						if (obj.salary < minSalary) {
@@ -199,7 +197,7 @@ describe("CeriosBuilder - Custom Validators", () => {
 				.setName("John")
 				.setAge(25)
 				.setSalary(10000)
-				.addValidator(obj => {
+				.addValidator((obj) => {
 					if (obj.age && obj.salary) {
 						const minSalary = obj.age * 1000;
 						if (obj.salary < minSalary) {

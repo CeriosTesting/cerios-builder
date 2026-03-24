@@ -1,4 +1,6 @@
-import { CeriosBuilder } from "../../src/cerios-builder";
+import { expect, it } from "vitest";
+
+import { BuilderStep, CeriosBuilder } from "../../src/cerios-builder";
 
 type Address = {
 	Street: string;
@@ -37,7 +39,7 @@ type OrderRequest = {
 };
 
 class OrderRequestBuilder extends CeriosBuilder<OrderRequest> {
-	static create() {
+	static create(): OrderRequestBuilder {
 		return new OrderRequestBuilder({}, [
 			"Order.Details.CustomerId",
 			"Order.Details.Status",
@@ -48,52 +50,52 @@ class OrderRequestBuilder extends CeriosBuilder<OrderRequest> {
 		]);
 	}
 
-	static createWithDefaults() {
+	static createWithDefaults(): OrderRequestBuilder {
 		return this.create().status("pending").notes("Standard order");
 	}
 
-	orderNumber(value: string) {
+	orderNumber(value: string): BuilderStep<this, OrderRequest, "Order.Details.OrderNumber"> {
 		return this.setNestedProperty("Order.Details.OrderNumber", value);
 	}
 
-	customerId(value: string) {
+	customerId(value: string): BuilderStep<this, OrderRequest, "Order.Details.CustomerId"> {
 		return this.setNestedProperty("Order.Details.CustomerId", value);
 	}
 
-	status(value: string) {
+	status(value: string): BuilderStep<this, OrderRequest, "Order.Details.Status"> {
 		return this.setNestedProperty("Order.Details.Status", value);
 	}
 
-	totalAmount(value: number) {
+	totalAmount(value: number): BuilderStep<this, OrderRequest, "Order.Details.TotalAmount"> {
 		return this.setNestedProperty("Order.Details.TotalAmount", value);
 	}
 
-	notes(value: string) {
+	notes(value: string): BuilderStep<this, OrderRequest, "Order.Details.Notes"> {
 		return this.setNestedProperty("Order.Details.Notes", value);
 	}
 
-	shippingStreet(value: string) {
+	shippingStreet(value: string): BuilderStep<this, OrderRequest, "Order.Details.ShippingAddress.Street"> {
 		return this.setNestedProperty("Order.Details.ShippingAddress.Street", value);
 	}
 
-	shippingCity(value: string) {
+	shippingCity(value: string): BuilderStep<this, OrderRequest, "Order.Details.ShippingAddress.City"> {
 		return this.setNestedProperty("Order.Details.ShippingAddress.City", value);
 	}
 
-	shippingPostalCode(value: string) {
+	shippingPostalCode(value: string): BuilderStep<this, OrderRequest, "Order.Details.ShippingAddress.PostalCode"> {
 		return this.setNestedProperty("Order.Details.ShippingAddress.PostalCode", value);
 	}
 
-	shippingCountry(value: string) {
+	shippingCountry(value: string): BuilderStep<this, OrderRequest, "Order.Details.ShippingAddress.Country"> {
 		return this.setNestedProperty("Order.Details.ShippingAddress.Country", value);
 	}
 
-	items(value: OrderItems) {
+	items(value: OrderItems): BuilderStep<this, OrderRequest, "Order.Items"> {
 		return this.setNestedProperty("Order.Items", value);
 	}
 }
 
-test("should build order with deeply nested properties", () => {
+it("should build order with deeply nested properties", () => {
 	const order = OrderRequestBuilder.createWithDefaults()
 		.customerId("CUST-001")
 		.totalAmount(299.99)
@@ -123,7 +125,7 @@ test("should build order with deeply nested properties", () => {
 	});
 });
 
-test("should build with runtime validation when all required fields are set", () => {
+it("should build with runtime validation when all required fields are set", () => {
 	const order = OrderRequestBuilder.createWithDefaults()
 		.customerId("CUST-001")
 		.totalAmount(299.99)
@@ -138,26 +140,26 @@ test("should build with runtime validation when all required fields are set", ()
 	expect(order.Order.Details?.ShippingAddress.Street).toBe("123 Main St");
 });
 
-test("should throw error when required fields are missing with buildWithoutCompileTimeValidation", () => {
+it("should throw error when required fields are missing with buildWithoutCompileTimeValidation", () => {
 	expect(() => {
 		OrderRequestBuilder.createWithDefaults().buildWithoutCompileTimeValidation();
 	}).toThrow(
-		"Missing required fields: Order.Details.CustomerId, Order.Details.TotalAmount, Order.Details.ShippingAddress.Street, Order.Details.ShippingAddress.City, Order.Details.ShippingAddress.Country"
+		"Missing required fields: Order.Details.CustomerId, Order.Details.TotalAmount, Order.Details.ShippingAddress.Street, Order.Details.ShippingAddress.City, Order.Details.ShippingAddress.Country",
 	);
 });
 
-test("should throw error when some required fields are missing", () => {
+it("should throw error when some required fields are missing", () => {
 	expect(() => {
 		OrderRequestBuilder.createWithDefaults()
 			.customerId("CUST-001")
 			.totalAmount(100)
 			.buildWithoutCompileTimeValidation();
 	}).toThrow(
-		"Missing required fields: Order.Details.ShippingAddress.Street, Order.Details.ShippingAddress.City, Order.Details.ShippingAddress.Country"
+		"Missing required fields: Order.Details.ShippingAddress.Street, Order.Details.ShippingAddress.City, Order.Details.ShippingAddress.Country",
 	);
 });
 
-test("should allow setting required fields dynamically via setRequiredFields", () => {
+it("should allow setting required fields dynamically via setRequiredFields", () => {
 	const builder = OrderRequestBuilder.create()
 		.setRequiredFields([
 			"Order.Details.OrderNumber", // Adding OrderNumber as an additional required field
@@ -185,11 +187,11 @@ test("should allow setting required fields dynamically via setRequiredFields", (
 	// Missing OrderNumber
 
 	expect(() => builderMissing.buildWithoutCompileTimeValidation()).toThrow(
-		"Missing required fields: Order.Details.OrderNumber"
+		"Missing required fields: Order.Details.OrderNumber",
 	);
 });
 
-test("should combine static template and dynamic required fields", () => {
+it("should combine static template and dynamic required fields", () => {
 	const builder = OrderRequestBuilder.create()
 		.setRequiredFields(["Order.Details.OrderNumber"])
 		.customerId("CUST-001")
@@ -200,14 +202,14 @@ test("should combine static template and dynamic required fields", () => {
 		.shippingCountry("USA");
 
 	expect(() => builder.buildWithoutCompileTimeValidation()).toThrow(
-		"Missing required fields: Order.Details.OrderNumber"
+		"Missing required fields: Order.Details.OrderNumber",
 	);
 
 	const builderComplete = builder.orderNumber("ORD-001");
 	expect(() => builderComplete.buildWithoutCompileTimeValidation()).not.toThrow();
 });
 
-test("should allow setting optional nested properties", () => {
+it("should allow setting optional nested properties", () => {
 	// Test that we can set properties within an optional object (Order.Items is optional)
 	const order = OrderRequestBuilder.createWithDefaults()
 		.customerId("CUST-001")
