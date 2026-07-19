@@ -22,46 +22,53 @@
 		"dist"
 	],
 	"type": "commonjs",
-	"main": "./dist/index.js",
+	"main": "./dist/index.cjs",
 	"module": "./dist/index.mjs",
-	"types": "./dist/index.d.ts",
+	"types": "./dist/index.d.cts",
 	"exports": {
 		"./package.json": "./package.json",
 		".": {
-			"import": "./dist/index.mjs",
-			"default": "./dist/index.js"
+			"import": {
+				"types": "./dist/index.d.mts",
+				"default": "./dist/index.mjs"
+			},
+			"default": {
+				"types": "./dist/index.d.cts",
+				"default": "./dist/index.cjs"
+			}
 		}
 	},
 	"scripts": {
-		"build": "tsup",
+		"build": "tsdown",
 		"changeset": "changeset",
-		"changeset:publish": "changeset publish --provenance",
-		"changeset:version": "changeset version && npm i",
-		"changeset:prepare-release": "npm run changeset:version && npm run format",
+		"check-exports": "attw --pack .",
+		"compile": "tsc --noEmit",
+		"dev": "tsc --watch",
 		"format": "oxfmt",
 		"format:check": "oxfmt --check",
 		"lint": "oxlint --type-aware",
 		"lint:fix": "oxlint --type-aware --fix",
-		"check-exports": "attw --pack .",
-		"compile": "tsc --noEmit",
-		"dev": "tsc --watch",
+		"release": "changeset publish --provenance",
 		"test": "vitest --run",
 		"test:coverage": "vitest --coverage",
 		"test:watch": "vitest --watch",
-		"update-all-packages": "npm-check-updates -u && npm i"
+		"update-all-packages": "npm-check-updates -u && npm i",
+		"version-packages": "changeset version && npm i",
+		"version-packages:prepare-release": "npm run version-packages && npm run format"
 	},
 	"devDependencies": {
-		"@arethetypeswrong/cli": "^0.18.2",
-		"@changesets/cli": "^2.30.0",
-		"@types/node": "^25.4.0",
+		"@arethetypeswrong/cli": "^0.18.5",
+		"@changesets/cli": "^2.31.1",
+		"@types/node": "^26.1.1",
+		"@vitest/coverage-v8": "^4.1.10",
 		"husky": "^9.1.7",
-		"lint-staged": "^16.3.3",
-		"npm-check-updates": "^19.6.3",
-		"oxfmt": "^0.38.0",
-		"oxlint": "^1.53.0",
-		"oxlint-tsgolint": "^0.16.0",
-		"tsup": "^8.5.1",
-		"typescript": "^5.9.3",
-		"vitest": "^4.0.18"
+		"lint-staged": "^17.1.0",
+		"npm-check-updates": "^22.2.9",
+		"oxfmt": "^0.59.0",
+		"oxlint": "^1.74.0",
+		"oxlint-tsgolint": "^0.25.0",
+		"tsdown": "^0.22.12",
+		"typescript": "^7.0.2",
+		"vitest": "^4.1.10"
 	}
 }
