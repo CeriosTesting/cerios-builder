@@ -16,7 +16,7 @@ class PersonBuilder extends CeriosBuilder<Person> {
 		requiredFields?: ReadonlyArray<keyof Person>,
 		validators?: Array<(obj: Partial<Person>) => boolean | string>,
 	) {
-		super(data, requiredFields as ReadonlyArray<keyof Person>, validators);
+		super(data, requiredFields, validators);
 	}
 
 	static requiredTemplate = ["name", "age"] as const;

@@ -18,5 +18,13 @@
 		"typescript/no-unnecessary-type-assertion": "error",
 		"typescript/prefer-nullish-coalescing": "error",
 		"typescript/require-await": "error"
-	}
+	},
+	"overrides": [
+		{
+			"files": ["tests/**"],
+			"rules": {
+				"typescript/no-deprecated": "off"
+			}
+		}
+	]
 }

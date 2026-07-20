@@ -34,11 +34,11 @@ abstract class BasePostRequestBuilder<T extends BasePostRequest> extends CeriosB
 	}
 
 	title(value: NonNullable<T["title"]>): BuilderStep<this, T, "title"> {
-		return this.setProperty("title", value as T["title"]);
+		return this.setProperty("title", value);
 	}
 
 	content(value: NonNullable<T["content"]>): BuilderStep<this, T, "content"> {
-		return this.setProperty("content", value as T["content"]);
+		return this.setProperty("content", value);
 	}
 
 	addTag(value: string): BuilderStep<this, T, "tags"> {

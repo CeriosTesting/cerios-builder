@@ -11,23 +11,25 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      id-token: write
       pull-requests: write
+      id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "22"
+          node-version: 24
           cache: "npm"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Upgrade npm
-        run: npm install -g npm@latest
+      - name: Show Node and npm versions
+        run: |
+          node -v
+          npm -v
 
       - name: Install dependencies
         run: npm ci
@@ -42,8 +44,8 @@ jobs:
         id: changesets
         uses: changesets/action@v1
         with:
-          version: npm run changeset:prepare-release
-          publish: npm run changeset:publish
+          version: npm run version-packages:prepare-release
+          publish: npm run release
           commit: "chore: version packages"
           title: "chore: version packages"
         env:
