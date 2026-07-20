@@ -65,6 +65,31 @@ describe("CeriosClassAutoBuilder - automatic setters", () => {
 		expect(instance.count).toBe(2);
 	});
 
+	it("keeps a nested instance the builder set when a field initializer supplies a default", () => {
+		class ResultSet {
+			people: string[] = [];
+		}
+		class ResponseEnvelope {
+			resultSet = new ResultSet();
+		}
+		class ResultSetBuilder extends CeriosClassAutoBuilder(ResultSet) {
+			static create(): ResultSetBuilder {
+				return new ResultSetBuilder();
+			}
+		}
+		class ResponseEnvelopeBuilder extends CeriosClassAutoBuilder(ResponseEnvelope) {
+			static create(): ResponseEnvelopeBuilder {
+				return new ResponseEnvelopeBuilder();
+			}
+		}
+
+		const resultSet = ResultSetBuilder.create().people(["Ada"]).build();
+		const envelope = ResponseEnvelopeBuilder.create().resultSet(resultSet).build();
+
+		expect(envelope.resultSet).toBeInstanceOf(ResultSet);
+		expect(envelope.resultSet.people).toEqual(["Ada"]);
+	});
+
 	it("sets optional and nested properties", () => {
 		const person = PersonBuilder.create()
 			.name("John")

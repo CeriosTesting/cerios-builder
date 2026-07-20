@@ -3,6 +3,7 @@ import {
 	assertSafeKey,
 	assertSafePath,
 	deepClone,
+	deepEquals,
 	deepHarden,
 	pickRequiredRoots,
 	toRequiredPaths,
@@ -63,6 +64,95 @@ function getterOnlyKeys(ctor: ClassConstructor<object>): ReadonlySet<string> {
 	}
 	GETTER_ONLY_KEYS_CACHE.set(ctor, keys);
 	return keys;
+}
+
+/**
+ * Field-initializer defaults per target class, computed once per class.
+ *
+ * `null` records a class whose constructor cannot be called without arguments.
+ * @internal
+ */
+const PROBE_DEFAULTS_CACHE = new WeakMap<object, Record<string, unknown> | null>();
+
+/**
+ * The property values a target class produces when constructed with no data at all.
+ *
+ * This is what separates a field initializer's untouched default from a value the
+ * constructor genuinely derived from the builder's data - both are non-`undefined` on the
+ * built instance, and nothing else distinguishes them.
+ *
+ * Constructed at most once per class and only on the ambiguous path, so classes that take
+ * no data parameter or assign straight through never pay for it. A constructor that demands
+ * arguments throws here; that is recorded as `null`, and the caller then falls back to
+ * assigning, which keeps the builder's "what you set is what you get" guarantee rather than
+ * silently dropping a value.
+ *
+ * @internal
+ */
+function probeDefaults(ctor: ClassConstructor<object>): Record<string, unknown> | null {
+	const cached = PROBE_DEFAULTS_CACHE.get(ctor);
+	if (cached !== undefined) {
+		return cached;
+	}
+	let defaults: Record<string, unknown> | null = null;
+	try {
+		const probe = new ctor() as Record<string, unknown>;
+		defaults = {};
+		for (const key of Object.keys(probe)) {
+			defaults[key] = probe[key];
+		}
+	} catch {
+		defaults = null;
+	}
+	PROBE_DEFAULTS_CACHE.set(ctor, defaults);
+	return defaults;
+}
+
+/**
+ * Decides whether a single built value still has to be assigned onto the instance.
+ *
+ * This used to be one all-or-nothing flag for the whole object: if any key came back
+ * `undefined` the constructor was assumed to have ignored the data and every key was
+ * overwritten, otherwise none was. A class with field initializers broke both halves of
+ * that - the initializer left nothing `undefined`, so a class that never read `data` at all
+ * (`class Envelope { resultSet = new ResultSet() }`) looked exactly like one that had
+ * consumed it, and the built value was silently dropped.
+ *
+ * The question is per key, and it is "did the constructor derive this value from the data?"
+ *
+ * A module-level function rather than a method: every runtime member of the builder has to
+ * be reserved, and reserving a name costs users a property they can no longer declare.
+ *
+ * @internal
+ */
+function shouldAssign<T extends object>(
+	ctor: ClassConstructor<T>,
+	instance: T,
+	data: Partial<T>,
+	key: keyof T,
+): boolean {
+	// The constructor stored the value verbatim; assigning would be a no-op.
+	if (instance[key] === data[key]) {
+		return false;
+	}
+	// No data parameter declared, so the constructor cannot have derived anything from the
+	// data - whatever is on the instance is a field initializer default.
+	if (ctor.length === 0) {
+		return true;
+	}
+	const defaults = probeDefaults(ctor);
+	// Constructor requires arguments, so its defaults are unknowable; prefer the value the
+	// caller explicitly asked for over one we cannot account for.
+	if (defaults === null) {
+		return true;
+	}
+	// Constructing without data leaves this key unset, yet it has a value now: that value can
+	// only have come from the data, so the constructor transformed it. Keep it.
+	if (defaults[key as string] === undefined) {
+		return instance[key] === undefined;
+	}
+	// A default exists and the instance still holds it: the data never reached this key.
+	return deepEquals(instance[key], defaults[key as string]);
 }
 
 /**
@@ -473,9 +563,8 @@ export class CeriosClassBuilder<T extends object> {
 	 * Instantiates the target class from the current state.
 	 *
 	 * The single copy of what used to be an identical eight-line block in all eight build
-	 * variants. Classes that assign in their constructor need nothing further; those that
-	 * do not get the data assigned afterwards, which is what the `needsAssign` check
-	 * detects.
+	 * variants. Values the constructor derived from the data are left alone; the rest are
+	 * assigned afterwards, per key - see `shouldAssign`.
 	 */
 	private instantiate(): T {
 		const ctor = this.getClassConstructor();
@@ -491,9 +580,8 @@ export class CeriosClassBuilder<T extends object> {
 		// bare TypeError) should a future write path miss the guard.
 		const getterOnly = getterOnlyKeys(ctor);
 		const dataKeys = Object.keys(data).filter((key) => !getterOnly.has(key)) as (keyof T)[];
-		const needsAssign = dataKeys.some((key) => instance[key] === undefined && data[key] !== undefined);
-		if (needsAssign) {
-			for (const key of dataKeys) {
+		for (const key of dataKeys) {
+			if (shouldAssign(ctor, instance, data, key)) {
 				(instance as Partial<T>)[key] = data[key];
 			}
 		}
