@@ -43,6 +43,75 @@ describe("CeriosClassAutoBuilder - compile-time safety", () => {
 		expect(complete.build().greet()).toBe("Hi, John");
 	});
 
+	it("does not generate setters for private or protected members", () => {
+		class Secretive {
+			name!: string;
+			private secret = "s3cret";
+			protected internalCode = 7;
+
+			revealSecret(): string {
+				return this.secret;
+			}
+
+			revealCode(): number {
+				return this.internalCode;
+			}
+		}
+
+		class SecretiveBuilder extends CeriosClassAutoBuilder(Secretive) {
+			static create(): SecretiveBuilder {
+				return new SecretiveBuilder();
+			}
+		}
+
+		// `keyof` only surfaces public members, so non-public properties get no setter and
+		// do not count toward the build gate; the class's own field initializers still run.
+		const builder = SecretiveBuilder.create().name("n");
+		// @ts-expect-error - secret is private, no setter exists
+		void builder.secret;
+		// @ts-expect-error - internalCode is protected, no setter exists
+		void builder.internalCode;
+
+		const built = builder.build();
+		expect(built.revealSecret()).toBe("s3cret");
+		expect(built.revealCode()).toBe(7);
+	});
+
+	it("does not generate a setter for readonly fields; they are seeded through the constructor", () => {
+		class Entity {
+			readonly id!: string;
+			name!: string;
+
+			constructor(data?: Partial<Entity>) {
+				if (data) {
+					Object.assign(this, data);
+				}
+			}
+		}
+
+		class EntityBuilder extends CeriosClassAutoBuilder(Entity) {
+			static create(data?: Partial<Entity>): EntityBuilder {
+				return new EntityBuilder(data);
+			}
+		}
+
+		// A readonly field belongs to the class - external code must not write it, so no
+		// setter is generated and the gate does not demand it. It is established through the
+		// class's own constructor via seed data or from().
+		// @ts-expect-error - id is readonly, no setter is generated
+		EntityBuilder.create().id("1");
+
+		const built = EntityBuilder.create().name("n").build();
+		expect(built.name).toBe("n");
+
+		// Seeding the readonly field through the constructor carries it into the instance.
+		const seeded = EntityBuilder.create({ id: "1" }).name("n").build();
+		expect(seeded.id).toBe("1");
+
+		const fromInstance = EntityBuilder.from(new Entity({ id: "2", name: "n" })).build();
+		expect(fromInstance.id).toBe("2");
+	});
+
 	it("does not generate setters for methods (with or without parameters)", () => {
 		// @ts-expect-error - greet is a method, not a data property
 		PersonBuilder.create().greet(() => "x");

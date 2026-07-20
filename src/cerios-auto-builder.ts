@@ -89,9 +89,12 @@ export type AutoBuilderConstructor<T extends object> = (abstract new (
  *   method that sets such a strengthened property brands it as the *base* type's optional
  *   flavor, which does not count toward the derived build gate - set strengthened
  *   properties through the derived builder's own setter instead.
- * - Of the build/state API only `buildPartial` is visible; the other members either gate
- *   on a brand or return `this`, both of which make the full {@link AutoBuilderApi}
- *   contravariant and would reject every derived builder.
+ * - Of the build/state API only the brand-free members whose types are covariant in TBase
+ *   are visible: `buildPartial`, `buildUnsafe`, `buildWithoutCompileTimeValidation`, and
+ *   `clone`/`addValidator` (in the same generic-`Self` shape the setters use, so they keep
+ *   returning the concrete builder type). The validated build variants gate on a brand the
+ *   base view cannot know, and members like `setRequiredFields` take types contravariant in
+ *   TBase; either would reject every derived builder.
  *
  * @example
  * ```typescript
@@ -123,7 +126,12 @@ export type AutoBuilderBase<TBase extends object> = abstract new (
 		value: NonNullable<TBase[K]>,
 	) => BuilderStep<Self, TBase, K & keyof TBase>;
 } & BuilderTargetMarker<TBase> &
-	Pick<AutoBuilderApi<TBase>, "buildPartial">;
+	Pick<AutoBuilderApi<TBase>, "buildPartial" | "buildUnsafe" | "buildWithoutCompileTimeValidation"> & {
+		/** Creates an independent copy of the builder with deep-cloned state. */
+		clone<Self>(this: Self): Self;
+		/** Adds a custom validator that runs during build. */
+		addValidator<Self>(this: Self, validator: (obj: Partial<TBase>) => boolean | string): Self;
+	};
 
 /**
  * Concrete runtime backing class for {@link CeriosAutoBuilder}. Extends the real

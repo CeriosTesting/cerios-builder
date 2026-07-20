@@ -70,6 +70,26 @@ export type RequiredKeys<T> = {
 }[keyof T];
 
 /**
+ * Resolves to A when X and Y are identical types (including modifiers), otherwise B.
+ * The function-signature comparison is the only relation TypeScript checks invariantly,
+ * which is what makes it able to see the `readonly` modifier that assignability ignores.
+ * @internal
+ */
+type IfEquals<X, Y, A, B> = (<V>() => V extends X ? 1 : 2) extends <V>() => V extends Y ? 1 : 2 ? A : B;
+
+/**
+ * Helper type to extract the writable (non-`readonly`) keys of a type.
+ *
+ * A getter-only class accessor surfaces as a `readonly` property, so this is also the only
+ * compile-time signal that a class member cannot be assigned at runtime.
+ *
+ * @template T - The type to extract writable keys from
+ */
+export type WritableKeys<T> = {
+	[K in keyof T]-?: IfEquals<{ [Q in K]: T[K] }, { -readonly [Q in K]: T[K] }, K, never>;
+}[keyof T];
+
+/**
  * An exhaustive map of the required keys of T, used as an alternative to a hand-written
  * array of required-field paths.
  *

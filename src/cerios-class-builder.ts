@@ -8,13 +8,81 @@ import {
 	toRequiredPaths,
 } from "./auto-builder-core";
 import { CeriosBuilderError, runValidatorsAgainst } from "./builder-error";
-import type { BuilderTargetMarker, DeepReadonly, RequiredFieldsRecord, RequiredKeys, TargetOfMarker } from "./types";
+import type {
+	BuilderTargetMarker,
+	DeepReadonly,
+	RequiredFieldsRecord,
+	RequiredKeys,
+	TargetOfMarker,
+	WritableKeys,
+} from "./types";
 
 /**
  * Type representing a class constructor that can be instantiated with optional partial data.
  * @template T - The type that the constructor creates
  */
 export type ClassConstructor<T> = new (data?: Partial<T>) => T;
+
+/**
+ * Getter-only accessor names per target class, computed once per class.
+ * @internal
+ */
+const GETTER_ONLY_KEYS_CACHE = new WeakMap<object, ReadonlySet<string>>();
+
+/**
+ * Collects the names on the class's prototype chain that resolve to an accessor with a
+ * getter but no setter. The nearest descriptor wins, so a derived class that redeclares an
+ * inherited getter-only accessor as a getter/setter pair makes the name writable again.
+ *
+ * `DataPropertiesOnly` cannot exclude these at the type level - a getter is structurally
+ * indistinguishable from a data property - so they must be caught at runtime instead.
+ *
+ * @internal
+ */
+function getterOnlyKeys(ctor: ClassConstructor<object>): ReadonlySet<string> {
+	const cached = GETTER_ONLY_KEYS_CACHE.get(ctor);
+	if (cached) {
+		return cached;
+	}
+	const keys = new Set<string>();
+	const seen = new Set<string>();
+	let proto: object | null = ctor.prototype as object | null;
+	while (proto && proto !== Object.prototype) {
+		for (const name of Object.getOwnPropertyNames(proto)) {
+			if (seen.has(name)) {
+				continue;
+			}
+			seen.add(name);
+			const descriptor = Object.getOwnPropertyDescriptor(proto, name);
+			if (descriptor?.get && !descriptor.set) {
+				keys.add(name);
+			}
+		}
+		proto = Object.getPrototypeOf(proto) as object | null;
+	}
+	GETTER_ONLY_KEYS_CACHE.set(ctor, keys);
+	return keys;
+}
+
+/**
+ * Rejects writes to a getter-only accessor of the target class.
+ *
+ * Without this, the value sat in the builder state until build, where assigning it threw
+ * `TypeError: Cannot set property ... which has only a getter` - far from the misuse and
+ * without naming the builder as the culprit.
+ *
+ * @throws {CeriosBuilderError} If the key is a getter-only accessor on the target class
+ * @internal
+ */
+function assertNotGetterOnly(ctor: ClassConstructor<object>, key: PropertyKey): void {
+	if (typeof key === "string" && getterOnlyKeys(ctor).has(key)) {
+		throw new CeriosBuilderError(
+			`"${key}" is a getter-only accessor on ${ctor.name}; its value is computed by the class and cannot be set through the builder.`,
+			[],
+			[],
+		);
+	}
+}
 
 /**
  * Helper to extract only data properties (exclude methods) from a class type.
@@ -44,18 +112,30 @@ export type InternalClassBrand<T> = {
 export type CeriosClassBrand<T> = InternalClassBrand<T>;
 
 /**
+ * The writable data properties of T: what the gate may demand and what a builder can
+ * actually assign. Getter-only accessors surface as `readonly` properties, so this view is
+ * what keeps them out of the build gate — a gate demanding a computed property would make
+ * the class unbuildable through the validated variants.
+ * @internal
+ */
+type WritableDataProperties<T> = Pick<DataPropertiesOnly<T>, WritableKeys<DataPropertiesOnly<T>>>;
+
+/**
  * The `this` constraint gating the compile-time-validated build variants.
  *
- * Normally the accumulated {@link InternalClassBrand} must cover every required data
- * property of T. When T has no required data properties there is nothing to track, so the
- * gate dissolves to `unknown` and `build()` is callable on a fresh builder — an all-optional
- * class no longer needs a throwaway setter call before it can build.
+ * Normally the accumulated {@link InternalClassBrand} must cover every required *writable*
+ * data property of T. Readonly-typed properties are excluded: a getter-only accessor is
+ * indistinguishable from a `readonly` field at the type level, and demanding a computed
+ * property would make the class unbuildable (setting it throws at runtime). When T has no
+ * required writable data properties there is nothing to track, so the gate dissolves to
+ * `unknown` and `build()` is callable on a fresh builder — an all-optional class no longer
+ * needs a throwaway setter call before it can build.
  *
  * @template T - The class type being built
  */
-export type ClassBuildGate<T> = [RequiredKeys<DataPropertiesOnly<T>>] extends [never]
+export type ClassBuildGate<T> = [RequiredKeys<WritableDataProperties<T>>] extends [never]
 	? unknown
-	: InternalClassBrand<DataPropertiesOnly<T>>;
+	: InternalClassBrand<WritableDataProperties<T>>;
 
 type RootFromPath<P extends string> = P extends `${infer K}.${string}` ? K : P;
 
@@ -311,6 +391,10 @@ export class CeriosClassBuilder<T extends object> {
 		_validators?: Array<(obj: Partial<T>) => boolean | string>,
 		_requiredFields?: ReadonlyArray<ClassPath<T>> | Set<string>,
 	) {
+		// Seed data bypasses `setProperty`, so it needs the same getter-only guard here.
+		for (const key of Object.keys(data)) {
+			assertNotGetterOnly(classConstructor, key);
+		}
 		this._classConstructor = classConstructor;
 		this._actual = data;
 		if (_validators) {
@@ -385,10 +469,16 @@ export class CeriosClassBuilder<T extends object> {
 		const data = deepClone(this._actual);
 		const instance: T = new ctor(data);
 
-		const dataKeys = Object.keys(data) as (keyof T)[];
+		// The write-path guards keep getter-only accessor keys out of the state; filtering
+		// here as well keeps [[Set]] from ever reaching a get-only accessor (which throws a
+		// bare TypeError) should a future write path miss the guard.
+		const getterOnly = getterOnlyKeys(ctor);
+		const dataKeys = Object.keys(data).filter((key) => !getterOnly.has(key)) as (keyof T)[];
 		const needsAssign = dataKeys.some((key) => instance[key] === undefined && data[key] !== undefined);
 		if (needsAssign) {
-			Object.assign(instance, data);
+			for (const key of dataKeys) {
+				(instance as Partial<T>)[key] = data[key];
+			}
 		}
 
 		return instance;
@@ -447,6 +537,7 @@ export class CeriosClassBuilder<T extends object> {
 	): ClassBuilderStep<this, T, K>;
 	protected setProperty<K extends keyof T & string>(key: K, value: T[K]): ClassBuilderStep<this, T, K> {
 		assertSafeKey(key);
+		assertNotGetterOnly(this.getClassConstructor(), key);
 		const newBuilder = this.createBuilder({
 			...this._actual,
 			[key]: value,
@@ -464,7 +555,10 @@ export class CeriosClassBuilder<T extends object> {
 	protected setProperties<K extends keyof DataPropertiesOnly<T>>(
 		props: Pick<DataPropertiesOnly<T>, K>,
 	): ClassBuilderStep<this, T, K> {
-		Object.keys(props).forEach(assertSafeKey);
+		for (const key of Object.keys(props)) {
+			assertSafeKey(key);
+			assertNotGetterOnly(this.getClassConstructor(), key);
+		}
 		const newBuilder = this.createBuilder({
 			...this._actual,
 			...props,
@@ -505,6 +599,8 @@ export class CeriosClassBuilder<T extends object> {
 	): ClassBuilderStep<this, T, P> {
 		assertSafePath(path as string);
 		const keys = (path as string).split(".");
+		// Only the root key lands on the target class; deeper segments live on nested values.
+		assertNotGetterOnly(this.getClassConstructor(), keys[0]);
 		const newActual = deepClone(this._actual);
 
 		let current = newActual as Record<string, unknown>;
@@ -708,6 +804,7 @@ export class CeriosClassBuilder<T extends object> {
 				: never),
 	>(key: K, value: V): ClassBuilderStep<this, T, K> {
 		assertSafeKey(key);
+		assertNotGetterOnly(this.getClassConstructor(), key);
 		const currentArray = (this._actual[key as keyof T] as Array<V> | undefined) ?? [];
 		const newBuilder = this.createBuilder({
 			...this._actual,

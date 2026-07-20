@@ -43,6 +43,39 @@ function BasePostRequestBuilder<TBuilder extends AutoBuilderBase<BasePostRequest
 			// derived builder's build gate.
 			return this.postId(`post-${this.buildPartial().title?.length ?? 0}`);
 		}
+
+		// oxlint-disable-next-line typescript/explicit-function-return-type -- deliberately inferred: the test locks the base-flavored brand this produces
+		untitled() {
+			// Inferred return type: the base view's BuilderStep, which brands title as the
+			// base type's *optional* flavor - it does not count toward a derived gate that
+			// strengthens title to required.
+			return this.title("Untitled");
+		}
+
+		untitledTracked(): BuilderWith<this, "title"> {
+			// Annotated with BuilderWith<this, "title">: the brand re-resolves against the
+			// *derived* target at the call site, so it does count toward a strengthened gate.
+			return this.title("Untitled");
+		}
+
+		// The base view exposes clone(), addValidator(), buildUnsafe(), and
+		// buildWithoutCompileTimeValidation() alongside buildPartial(), so shared methods
+		// can fork, validate, and build without the derived builder's brand.
+		draftCopy(): this {
+			return this.clone();
+		}
+
+		requireTags(): this {
+			return this.addValidator((post) => ((post.tags?.length ?? 0) > 0 ? true : "post must have at least one tag"));
+		}
+
+		preview(): BasePostRequest {
+			return this.buildUnsafe();
+		}
+
+		submit(): BasePostRequest {
+			return this.buildWithoutCompileTimeValidation();
+		}
 	}
 	return PostRequestBuilder as BuilderExtension<TBuilder, PostRequestBuilder>;
 }
@@ -165,6 +198,57 @@ describe("CeriosAutoBuilder - base type extension", () => {
 			notifySubscribers: true,
 			tags: ["cloned"],
 		});
+	});
+
+	it("brands strengthened properties per the shared method's return annotation", () => {
+		// CreatePostRequest strengthens the base-optional title to required. A shared method
+		// with an *inferred* return type brands the base optional flavor, which the derived
+		// gate must reject - the value itself IS set, so only the compile gate objects.
+		const inferred = CreatePostRequestBuilder.create().postId("p").content("c").authorId("a").untitled();
+		// @ts-expect-error - title's base-optional brand does not satisfy the derived gate
+		const request = inferred.build();
+		expect(request.title).toBe("Untitled");
+
+		// Annotating the shared method with BuilderWith<this, "title"> re-resolves the brand
+		// against the derived target at the call site, so the same call satisfies the gate.
+		const tracked = CreatePostRequestBuilder.create().postId("p").content("c").authorId("a").untitledTracked();
+		expectTypeOf(tracked.build()).toEqualTypeOf<CreatePostRequest>();
+		expect(tracked.build().title).toBe("Untitled");
+	});
+
+	it("clone() through a shared method keeps the concrete builder type", () => {
+		// draftCopy() calls this.clone() through the base view; the result must still have
+		// derived-only setters and shared methods, and must be an independent fork.
+		const original = CreatePostRequestBuilder.create().postId("p").title("t").content("c");
+		const draft = original.draftCopy().authorId("author-9").addTag("draft");
+
+		expect(draft.build()).toEqual({
+			postId: "p",
+			title: "t",
+			content: "c",
+			authorId: "author-9",
+			tags: ["draft"],
+		});
+		expect(original.buildPartial().tags).toBeUndefined();
+	});
+
+	it("addValidator() through a shared method runs during build", () => {
+		const builder = CreatePostRequestBuilder.create().postId("p").title("t").content("c").authorId("a").requireTags();
+
+		expect(() => builder.build()).toThrow("post must have at least one tag");
+		expect(builder.addTag("ok").build().tags).toEqual(["ok"]);
+	});
+
+	it("buildUnsafe() and buildWithoutCompileTimeValidation() are callable from shared methods", () => {
+		const incomplete = CreatePostRequestBuilder.create().title("t");
+
+		// preview() skips all validation and returns the current state.
+		expect(incomplete.preview()).toEqual({ title: "t" });
+		// submit() skips the compile gate but still validates at runtime.
+		expect(() => incomplete.submit()).toThrow("Missing required fields");
+
+		const complete = CreatePostRequestBuilder.create().postId("p").title("t").content("c").authorId("a");
+		expect(complete.submit()).toEqual({ postId: "p", title: "t", content: "c", authorId: "a" });
 	});
 
 	it("keeps the static from() available through the base-builder function", () => {

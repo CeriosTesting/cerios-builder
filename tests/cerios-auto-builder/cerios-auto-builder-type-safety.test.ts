@@ -48,6 +48,27 @@ describe("CeriosAutoBuilder - compile-time safety", () => {
 		expect(complete.build()).toEqual({ id: "1", name: "n", role: "r" });
 	});
 
+	it("generates working setters for readonly properties and keeps the built object readonly", () => {
+		// `readonly` forbids reassignment *after* construction, and the builder is the
+		// construction - the same reason a literal may initialize a readonly property.
+		// Excluding readonly properties would make immutable types unbuildable.
+		type ImmutableUser = { readonly id: string; name: string };
+
+		class ImmutableUserBuilder extends CeriosAutoBuilder<ImmutableUser>() {
+			static create(): ImmutableUserBuilder {
+				return new ImmutableUserBuilder({});
+			}
+		}
+
+		const built = ImmutableUserBuilder.create().id("1").name("n").build();
+		expect(built).toEqual({ id: "1", name: "n" });
+		expectTypeOf(built).toEqualTypeOf<ImmutableUser>();
+
+		// The built object keeps its readonly typing.
+		// @ts-expect-error - id is readonly once built
+		built.id = "2";
+	});
+
 	it("gates all compile-time-validated build variants", () => {
 		const incomplete = UserBuilder.create().id("1");
 

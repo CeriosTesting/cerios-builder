@@ -51,6 +51,25 @@ function BaseEntityBuilder<TBuilder extends ClassAutoBuilderBase<BaseEntity>>(Bu
 		createdOn(year: number): ClassBuilderWith<this, "createdAt"> {
 			return this.createdAt(new Date(Date.UTC(year, 0, 1)));
 		}
+
+		// The base view exposes clone(), addValidator(), buildUnsafe(), and
+		// buildWithoutCompileTimeValidation() alongside buildPartial(), so shared methods
+		// can fork, validate, and build without the derived builder's brand.
+		draftCopy(): this {
+			return this.clone();
+		}
+
+		requireCreatedAt(): this {
+			return this.addValidator((entity) => (entity.createdAt ? true : "entity must have a creation date"));
+		}
+
+		preview(): BaseEntity {
+			return this.buildUnsafe();
+		}
+
+		submit(): BaseEntity {
+			return this.buildWithoutCompileTimeValidation();
+		}
 	}
 	return EntityBuilder as BuilderExtension<TBuilder, EntityBuilder>;
 }
@@ -151,6 +170,41 @@ describe("CeriosClassAutoBuilder - base class extension", () => {
 		expect(order.id).toBe("entity-4");
 		expect(order.total).toBe(45);
 		expect(order.createdAt).toEqual(new Date(Date.UTC(2025, 0, 1)));
+	});
+
+	it("clone() through a shared method keeps the concrete builder type", () => {
+		// draftCopy() calls this.clone() through the base view; the result must still have
+		// derived-only setters and shared methods, and must be an independent fork.
+		const original = OrderBuilder.create().sequentialId(7).total(70);
+		const draft = original.draftCopy().reference("draft").total(77);
+
+		const order = draft.build();
+		expect(order).toBeInstanceOf(Order);
+		expect(order.total).toBe(77);
+		expect(order.reference).toBe("draft");
+		expect(original.buildPartial().total).toBe(70);
+		expect(original.buildPartial().reference).toBeUndefined();
+	});
+
+	it("addValidator() through a shared method runs during build", () => {
+		const builder = OrderBuilder.create().sequentialId(8).total(80).requireCreatedAt();
+
+		expect(() => builder.build()).toThrow("entity must have a creation date");
+		expect(builder.createdOn(2026).build().createdAt).toEqual(new Date(Date.UTC(2026, 0, 1)));
+	});
+
+	it("buildUnsafe() and buildWithoutCompileTimeValidation() are callable from shared methods", () => {
+		const incomplete = OrderBuilder.create().total(9);
+
+		// preview() skips all validation and returns a real (partial) instance.
+		const previewed = incomplete.preview();
+		expect(previewed).toBeInstanceOf(Order);
+		expect((previewed as Order).total).toBe(9);
+		// submit() skips the compile gate but still validates at runtime.
+		expect(() => incomplete.submit()).toThrow("Missing required fields");
+
+		const submitted = OrderBuilder.create().sequentialId(9).total(90).submit();
+		expect(submitted).toBeInstanceOf(Order);
 	});
 
 	it("keeps the static from() available through the base-builder function", () => {

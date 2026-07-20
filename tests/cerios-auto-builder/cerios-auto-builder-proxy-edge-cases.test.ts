@@ -48,6 +48,29 @@ describe("CeriosAutoBuilder - proxy edge cases", () => {
 		expect(Reflect.get(builder, Symbol.asyncIterator)).toBeUndefined();
 	});
 
+	it("should leave symbol-keyed target properties entirely outside the builder's model", () => {
+		const kind = Symbol("kind");
+		type Tagged = { id: string; [kind]?: string };
+
+		class TaggedBuilder extends CeriosAutoBuilder<Tagged>() {
+			static create(): TaggedBuilder {
+				return new TaggedBuilder({});
+			}
+		}
+
+		// AutoSetters keys on `keyof T & string`, so no setter exists for the symbol key -
+		// at the type level or at runtime (symbol access forwards to the builder itself).
+		const builder = TaggedBuilder.create().id("1");
+		expect(Reflect.get(builder, kind)).toBeUndefined();
+		expect(builder.build()[kind]).toBeUndefined();
+
+		// A symbol-keyed value in the seed data does not survive either: state snapshots
+		// deep-clone via string keys. Symbol-keyed properties cannot be built.
+		const seeded = new TaggedBuilder({ id: "2", [kind]: "x" }).buildUnsafe();
+		expect(seeded.id).toBe("2");
+		expect(seeded[kind]).toBeUndefined();
+	});
+
 	it("should expose real methods to the in operator", () => {
 		const builder = SimpleBuilder.create();
 		expect("build" in builder).toBe(true);

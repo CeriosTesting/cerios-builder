@@ -64,7 +64,7 @@ Every property becomes a bare setter (`id`, `name`, …). Custom methods use tho
 
 ## 🧩 Building Classes: `CeriosClassAutoBuilder`
 
-Building instantiates the real class, so methods, getters, and decorators are preserved. Class methods are automatically excluded from the setters and from the required-property check:
+Building instantiates the real class, so methods, getters, and decorators are preserved. Setters are generated for **writable** data properties only: methods, getter-only accessors, and `readonly` fields get no setter and don't count toward the required-property check — a class's `readonly` fields are seeded through its own constructor (see [Limitations](#️-limitations)):
 
 ```typescript
 import { CeriosClassAutoBuilder } from "@cerios/cerios-builder";
@@ -132,6 +132,10 @@ class AddressBuilder extends CeriosAutoBuilder<Address>() {
 | Class builders                  | the same, with `ClassBuilderWith<>`      |
 
 **Instance methods must use `this`, not the class name.** `BuilderWith<this, "city">` keeps everything set earlier in the chain; naming the concrete class would discard it and `build()` would stop compiling. Returning a plain `AddressBuilder` has the same problem — always return the setter result.
+
+### Builder fields
+
+Fields you add to a builder subclass (a `Map` cache, a counter) survive every setter call — but they are carried **by reference**: each setter returns a copy-on-write fork, and all forks and clones share the same field instances. Only the target data is deep-cloned. Keep anything fork-specific in the target data itself; builder fields are for genuinely shared state such as memoized lookups.
 
 ### Method names
 
@@ -204,7 +208,7 @@ class CreatePostRequestBuilder extends BasePostRequestBuilder(CeriosAutoBuilder<
 }
 ```
 
-Inside the function, `this` exposes a setter for every property of the base type plus `buildPartial()`, and each derived builder keeps its own full API: all setters, per-builder required fields, `clone()`, and the static `from()`. Setter calls in shared methods brand the build gate like any other setter, so `create().addTag("x")` counts toward compile-time validation — and if your lint requires explicit return types, `BuilderWith<this, "tags">` (or `ClassBuilderWith<>`) works on shared methods exactly as in [Custom Methods](#-custom-methods). The `BuilderExtension<TBuilder, TShared>` return type is what keeps the derived setters and statics visible on the result — don't leave it off.
+Inside the function, `this` exposes a setter for every property of the base type plus the brand-free part of the build/state API: `buildPartial()`, `buildUnsafe()`, `buildWithoutCompileTimeValidation()`, `clone()`, and `addValidator()` — so shared methods can fork, validate, and build. (The compile-gated variants like `build()` need the derived builder's brand and stay derived-only.) Each derived builder keeps its own full API: all setters, per-builder required fields, and the static `from()`. Setter calls in shared methods brand the build gate like any other setter, so `create().addTag("x")` counts toward compile-time validation — and if your lint requires explicit return types, `BuilderWith<this, "tags">` (or `ClassBuilderWith<>`) works on shared methods exactly as in [Custom Methods](#-custom-methods). The `BuilderExtension<TBuilder, TShared>` return type is what keeps the derived setters and statics visible on the result — don't leave it off.
 
 For class hierarchies the shape is identical; the base class may be abstract, because it is only used as a type:
 
@@ -229,7 +233,7 @@ class OrderBuilder extends BaseEntityBuilder(CeriosClassAutoBuilder(Order)) {}
 class CustomerBuilder extends BaseEntityBuilder(CeriosClassAutoBuilder(Customer)) {}
 ```
 
-One nuance: when a derived type **strengthens** an optional base property to required (like `title` above), a shared method that sets it brands the _base_ type's optional flavor, which doesn't count toward the derived build gate. Set strengthened properties through the derived builder's own setter; shared methods are at their best on properties whose optionality doesn't change.
+One nuance: when a derived type **strengthens** an optional base property to required (like `title` above), a shared method whose return type is _inferred_ brands the _base_ type's optional flavor, which doesn't count toward the derived build gate. Annotating the shared method with `BuilderWith<this, "title">` (or `ClassBuilderWith<>`) fixes this: `BuilderWith` re-resolves the brand against the concrete builder's own target at the call site, so the same call satisfies the strengthened gate. Prefer the annotation on any shared method that sets a property a derived type might strengthen.
 
 ## ✅ Required Fields and Validators
 
@@ -506,6 +510,10 @@ test("free products skip payment", () => {
 - Class data properties that are function-typed (e.g. `onChange: (x: number) => void`) are treated like methods and get no setter — there's no reliable way to distinguish them from methods at the type level.
 - A custom method cannot have the same name as a property; use a distinct name that delegates to the generated setter (see [Method names](#method-names)).
 - Inside a **generic** base builder (e.g. `class Base<T extends Shape> extends ...`), the compile-time gate cannot resolve until `T` is concrete — the same rule as for hand-written builders. To share logic across derived types, use a [base-builder function](#sharing-custom-methods-the-base-builder-function) instead.
+- **`readonly` object properties keep their setters, `readonly` class fields do not.** For a plain object type there is no constructor — the builder _is_ the construction (the same reason an object literal may initialize a `readonly id`), so `CeriosAutoBuilder` generates a working setter and the built object stays `readonly`-typed. A **class** owns its `readonly` fields through its own constructor, so `CeriosClassAutoBuilder` generates no setter for them and the build gate doesn't demand them — seed them with `new Builder({ id: "1" })` or `Builder.from(instance)` instead, or enforce a genuinely required one with runtime `requiredFields`.
+- **Getter-only class accessors** (`get displayName() { ... }`) are computed by the class. Because a getter without a setter is `readonly` at the type level, no setter is generated — the misuse is a **compile error**. A runtime guard also throws a clear `CeriosBuilderError` naming the accessor, for untyped access (types are erased at runtime, so the proxy cannot see `readonly`) and for seed data. Accessors with both a getter and a setter are writable and get a setter as normal.
+- **Symbol-keyed properties** are outside the builder's model: setters are generated for string keys only, and state snapshots deep-clone via string keys, so a symbol-keyed value doesn't survive a build. If a required property is symbol-keyed, the compile gate cannot be satisfied — seed via `from()` or use `buildUnsafe()`.
+- **Builder subclass fields are carried by reference** across the copy-on-write forks every setter creates: a `Map` or array field on your builder class is shared between all forks and clones. Only the target data is deep-cloned — keep per-fork state in the target data, not in builder fields.
 
 ## 🗑️ Deprecated: `CeriosBuilder` and `CeriosClassBuilder`
 
@@ -556,10 +564,10 @@ type BuilderInit<T> = {
 - `BuilderInit<T>` — the named `{ requiredFields?, validators? }` constructor-options type both auto builders accept.
 - `AutoBuilderConstructor<T>` / `ClassAutoBuilderConstructor<T>` — the abstract constructor type a factory returns; name it when storing or passing a factory result.
 - `AutoBuilderApi<T>` / `ClassAutoBuilderApi<T>` — the build/validate/clone instance API every auto builder exposes, without the generated setters.
-- `AutoSetters<T>` / `ClassAutoSetters<T>` — the generated bare-name setters (one per property; the class variant covers data properties only).
+- `AutoSetters<T>` / `ClassAutoSetters<T>` — the generated bare-name setters (one per property; the class variant covers **writable** data properties only — methods, getter-only accessors, and `readonly` fields are excluded).
 - `DataPropertiesOnly<T>` — a class type with its methods stripped; the shape the class builders track and build from.
 - `ClassConstructor<T>` — the constructor signature `CeriosClassBuilder` requires of a target class.
-- `RequiredFieldsRecord<T>`, `RequiredFieldsTemplate<T>`, `Path<T>`, `ClassPath<T>`, `DeepReadonly<T>`, `OptionalKeys<T>`, `RequiredKeys<T>`.
+- `RequiredFieldsRecord<T>`, `RequiredFieldsTemplate<T>`, `Path<T>`, `ClassPath<T>`, `DeepReadonly<T>`, `OptionalKeys<T>`, `RequiredKeys<T>`, `WritableKeys<T>`.
 - `BuilderStep` / `ClassBuilderStep`, `BuilderPreset` / `ClassBuilderPreset`, `BuilderComposer` / `ClassBuilderComposer` — the longer three-argument forms `BuilderWith` supersedes; still exported and supported.
 
 ## 🤝 Contributing

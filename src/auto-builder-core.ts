@@ -482,13 +482,20 @@ export interface CommonAutoBuilderApi<T extends object, Data extends object, Bra
 
 	/**
 	 * Creates an independent copy of the builder with deep-cloned state.
+	 *
+	 * Declared in the same generic-`Self` shape as the generated setters (rather than
+	 * returning `this`) so the base-builder views can expose it while every derived builder
+	 * stays assignable to them. `Self` infers to the receiver, so calls behave exactly as a
+	 * `this` return would.
 	 */
-	clone(): this;
+	clone<Self>(this: Self): Self;
 
 	/**
 	 * Adds a custom validator that runs during build.
+	 *
+	 * Generic-`Self` shaped for the same reason as {@link clone}.
 	 */
-	addValidator(validator: (obj: Partial<T>) => boolean | string): this;
+	addValidator<Self>(this: Self, validator: (obj: Partial<T>) => boolean | string): Self;
 
 	/**
 	 * Sets the runtime-validated required field paths.

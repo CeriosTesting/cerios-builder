@@ -18,11 +18,18 @@ import {
 	DataPropertiesOnly,
 	InternalClassBrand,
 } from "./cerios-class-builder";
-import { BuilderTargetMarker } from "./types";
+import { BuilderTargetMarker, WritableKeys } from "./types";
 
 /**
  * Automatic setter methods for class data properties: one bare `<propertyName>`
- * method per data property of T (methods are excluded automatically).
+ * method per **writable** data property of T (methods are excluded automatically, and so
+ * are `readonly` properties - which is also what excludes getter-only accessors, since a
+ * getter without a setter is indistinguishable from a `readonly` field at the type level).
+ *
+ * A class's `readonly` fields are its own to establish, through its constructor - seed the
+ * builder with `new Builder({ id: "1" })` or `Builder.from(instance)` rather than a setter.
+ * External code should only ever write through a public setter (a writable field, or a
+ * getter/setter accessor pair).
  *
  * Property names that collide with a builder method (e.g. `build`) get a `Prop`
  * suffix; keys that aren't valid identifiers are set with bracket access.
@@ -31,7 +38,7 @@ import { BuilderTargetMarker } from "./types";
  * @template T - The class type being built
  */
 export type ClassAutoSetters<T extends object> = {
-	[K in keyof DataPropertiesOnly<T> & string as SetterName<K>]: <Self>(
+	[K in WritableKeys<DataPropertiesOnly<T>> & string as SetterName<K>]: <Self>(
 		this: Self,
 		value: DataPropertiesOnly<T>[K],
 	) => ClassBuilderStep<Self, T, K & keyof T>;
@@ -79,8 +86,8 @@ export type ClassAutoBuilderConstructor<T extends object> = (abstract new (
  * generic over every subclass of TBase cannot be written directly. Instead, write shared
  * logic once in a function constrained on this type and apply it on top of each concrete
  * class auto builder. Inside the function, `this` carries concrete setters for every
- * inherited data property, so shared methods can call them; the derived builder still
- * gets its full setter set from its own `CeriosClassAutoBuilder(Derived)` call.
+ * inherited *writable* data property, so shared methods can call them; the derived builder
+ * still gets its full setter set from its own `CeriosClassAutoBuilder(Derived)` call.
  *
  * TBase is used purely as a type and may be an abstract class - only the concrete derived
  * classes are ever passed to {@link CeriosClassAutoBuilder}.
@@ -90,9 +97,12 @@ export type ClassAutoBuilderConstructor<T extends object> = (abstract new (
  *   property to required. A shared method that sets such a strengthened property brands
  *   it as the *base* class's optional flavor, which does not count toward the derived
  *   build gate - set strengthened properties through the derived builder's own setter.
- * - Of the build/state API only `buildPartial` is visible; the other members either gate
- *   on a brand or return `this`, both of which make the full {@link ClassAutoBuilderApi}
- *   contravariant and would reject every derived builder.
+ * - Of the build/state API only the brand-free members whose types are covariant in TBase
+ *   are visible: `buildPartial`, `buildUnsafe`, `buildWithoutCompileTimeValidation`, and
+ *   `clone`/`addValidator` (in the same generic-`Self` shape the setters use, so they keep
+ *   returning the concrete builder type). The validated build variants gate on a brand the
+ *   base view cannot know, and members like `setRequiredFields` take types contravariant in
+ *   TBase; either would reject every derived builder.
  *
  * @example
  * ```typescript
@@ -117,12 +127,17 @@ export type ClassAutoBuilderBase<TBase extends object> = abstract new (
 	// oxlint-disable-next-line typescript/no-explicit-any -- the canonical mixin constraint; `any[]` keeps every concrete auto-builder constructor assignable
 	...args: any[]
 ) => {
-	[K in keyof DataPropertiesOnly<TBase> & string as SetterName<K>]: <Self>(
+	[K in WritableKeys<DataPropertiesOnly<TBase>> & string as SetterName<K>]: <Self>(
 		this: Self,
 		value: NonNullable<DataPropertiesOnly<TBase>[K]>,
 	) => ClassBuilderStep<Self, TBase, K & keyof TBase>;
 } & BuilderTargetMarker<TBase> &
-	Pick<ClassAutoBuilderApi<TBase>, "buildPartial">;
+	Pick<ClassAutoBuilderApi<TBase>, "buildPartial" | "buildUnsafe" | "buildWithoutCompileTimeValidation"> & {
+		/** Creates an independent copy of the builder with deep-cloned state. */
+		clone<Self>(this: Self): Self;
+		/** Adds a custom validator that runs during build. */
+		addValidator<Self>(this: Self, validator: (obj: Partial<TBase>) => boolean | string): Self;
+	};
 
 /**
  * One runtime class per target class, rather than per factory call.
@@ -138,10 +153,12 @@ export type ClassAutoBuilderBase<TBase extends object> = abstract new (
 const RUNTIME_CACHE = new WeakMap<object, ClassAutoBuilderConstructor<object>>();
 
 /**
- * Creates a base class with automatic bare-name setters for every data property
- * of the class T. Building instantiates the real class, so methods, getters, and
- * decorators are preserved. Extend the returned class and add ordinary methods
- * for any custom logic.
+ * Creates a base class with automatic bare-name setters for every **writable** data
+ * property of the class T. Building instantiates the real class, so methods, getters, and
+ * decorators are preserved. Methods, getter-only accessors, and `readonly` fields get no
+ * setter - a class's `readonly` fields are established through its constructor, so seed them
+ * with `new Builder({ ... })` or `Builder.from(instance)`. Extend the returned class and add
+ * ordinary methods for any custom logic.
  *
  * @example
  * ```typescript

@@ -73,6 +73,21 @@ describe("CeriosAutoBuilder - subclass instance state across copy-on-write", () 
 		expect(TrackingBuilder.create().title("hello").upper).toBe("HELLO");
 	});
 
+	it("carries subclass reference fields shallowly - every fork shares one instance", () => {
+		// Copy-on-write carries subclass fields by reference, deliberately: only the target
+		// data is deep-cloned. A mutable field like a Map is therefore aliased across forks;
+		// per-fork state belongs in the target data, not in builder fields.
+		const original = TrackingBuilder.create().remember("a", "1");
+		const forked = original.title("t");
+
+		expect(forked.cache).toBe(original.cache);
+		forked.cache.set("b", "2");
+		expect(original.cache.get("b")).toBe("2");
+
+		// clone() deep-clones only the target data; subclass fields stay shared too.
+		expect(original.clone().cache).toBe(original.cache);
+	});
+
 	it("does not let a subclass field mask the builder's own members", () => {
 		const forked = TrackingBuilder.create().title("t");
 

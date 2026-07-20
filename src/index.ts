@@ -37,4 +37,11 @@ export type {
 	DataPropertiesOnly,
 	InternalClassBrand,
 } from "./cerios-class-builder.js";
-export type { BuilderType, DeepReadonly, OptionalKeys, RequiredFieldsRecord, RequiredKeys } from "./types.js";
+export type {
+	BuilderType,
+	DeepReadonly,
+	OptionalKeys,
+	RequiredFieldsRecord,
+	RequiredKeys,
+	WritableKeys,
+} from "./types.js";
