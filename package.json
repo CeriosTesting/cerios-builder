@@ -48,7 +48,7 @@
 		"format:check": "oxfmt --check",
 		"lint": "oxlint --type-aware",
 		"lint:fix": "oxlint --type-aware --fix",
-		"release": "changeset publish --provenance",
+		"release": "changeset publish",
 		"test": "vitest --run",
 		"test:coverage": "vitest --coverage",
 		"test:watch": "vitest --watch",
