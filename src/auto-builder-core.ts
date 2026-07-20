@@ -188,6 +188,94 @@ export function deepClone<V>(obj: V, seen: WeakMap<object, unknown> = new WeakMa
 }
 
 /**
+ * Structural equality over the same value shapes `deepClone` reproduces.
+ *
+ * Used by the class builder to tell a field initializer's untouched default apart from a
+ * value the target constructor derived from the incoming data - the two are distinguishable
+ * only by comparing against a no-data probe instance, and the probe's nested objects are
+ * never reference-equal to the built instance's.
+ *
+ * Prototypes must match, so a class instance never compares equal to a plain object with
+ * the same keys. `Object.is` handles `NaN` and `-0` so a `NaN` default is not mistaken for
+ * a constructor-derived value. The `seen` map pairs each visited left-hand object with its
+ * right-hand counterpart, which makes cyclic structures terminate.
+ *
+ * @param a - Left-hand value
+ * @param b - Right-hand value
+ * @param seen - Cycle-tracking map; callers do not pass this
+ * @internal
+ */
+export function deepEquals(a: unknown, b: unknown, seen: WeakMap<object, unknown> = new WeakMap()): boolean {
+	if (Object.is(a, b)) {
+		return true;
+	}
+	if (a === null || b === null || typeof a !== "object" || typeof b !== "object") {
+		return false;
+	}
+	if (Object.getPrototypeOf(a) !== Object.getPrototypeOf(b)) {
+		return false;
+	}
+
+	const pairedWith = seen.get(a);
+	if (pairedWith !== undefined) {
+		return pairedWith === b;
+	}
+	seen.set(a, b);
+
+	const builtIn = deepEqualsBuiltIn(a, b, seen);
+	if (builtIn !== null) {
+		return builtIn;
+	}
+
+	const keys = Object.keys(a);
+	if (keys.length !== Object.keys(b).length) {
+		return false;
+	}
+	// `hasOwnProperty`, not just a value comparison: `{ a: undefined }` and `{ b: undefined }`
+	// have equal key counts and both read back `undefined` for either key.
+	return keys.every(
+		(key) =>
+			Object.prototype.hasOwnProperty.call(b, key) &&
+			deepEquals((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key], seen),
+	);
+}
+
+/**
+ * The built-in half of `deepEquals`, split out to keep either function readable.
+ *
+ * Callers have already established that `a` and `b` are non-null objects sharing a
+ * prototype, so testing `a` alone identifies the shape of both.
+ *
+ * @returns The comparison result, or `null` if neither value is a recognised built-in
+ * @internal
+ */
+function deepEqualsBuiltIn(a: object, b: object, seen: WeakMap<object, unknown>): boolean | null {
+	if (a instanceof Date) {
+		return Object.is(a.getTime(), (b as Date).getTime());
+	}
+	if (a instanceof RegExp) {
+		return a.source === (b as RegExp).source && a.flags === (b as RegExp).flags;
+	}
+	if (Array.isArray(a)) {
+		const other = b as unknown[];
+		return a.length === other.length && a.every((item, index) => deepEquals(item, other[index], seen));
+	}
+	if (a instanceof Map) {
+		const other = b as Map<unknown, unknown>;
+		// Keys are matched by identity, not structurally: `Map` lookup itself is
+		// identity-based, so two structurally equal object keys are already distinct entries.
+		return (
+			a.size === other.size && [...a].every(([key, value]) => other.has(key) && deepEquals(value, other.get(key), seen))
+		);
+	}
+	if (a instanceof Set) {
+		const other = b as Set<unknown>;
+		return a.size === other.size && [...a].every((value) => other.has(value));
+	}
+	return null;
+}
+
+/**
  * Recursively freezes or seals a value and everything reachable from it.
  *
  * One implementation for both operations and both builders. The `seen` set makes it
