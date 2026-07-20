@@ -1,5 +1,12 @@
 # @cerios/cerios-builder
 
+## 1.7.1
+
+### Patch Changes
+
+- 2d2c4b0: Fix `build()` silently dropping values set through a class builder when the target class uses field initializers, e.g. `class ResponseEnvelope { resultSet = new ResultSet(); }` returning a fresh empty `ResultSet` instead of the one passed to `.resultSet(...)`. After `new ctor(data)` the builder decided whether the constructor had consumed the data by looking for any key left `undefined`, then assigned either every key or none. A field initializer leaves nothing `undefined`, so a class that never reads `data` at all looked exactly like one that had already assigned it - and the same all-or-nothing flag overwrote deliberately normalised values whenever one unrelated key happened to be unset. The decision is now made per key: a value the constructor stored verbatim is left alone, a value it derived from the data is kept, and a key still holding its field initializer default is assigned. Classes whose constructor takes no data parameter skip the check entirely, and one whose constructor cannot be called without arguments falls back to assigning rather than dropping the value. Note that the built value remains a deep clone of what was handed to the builder, so it compares equal to it but is not the same object.
+- 6fc9486: Fix `BuilderWith<this, K1 | K2>` / `ClassBuilderWith<this, K1 | K2>` failing to compile inside an instance method that chains two or more generated setters off `this`, e.g. `setLabelWithCode(label): ClassBuilderWith<this, "label" | "code"> { return this.label(label).code(...); }`. Chaining setters accumulates the brand as an intersection of single-key brands, but the declared multi-key type computed one merged `Pick` over the whole key union - a shape TypeScript can't always prove assignable to the chained one when `this` is still a polymorphic type parameter, even though the two are equivalent for concrete types. `BuilderWith`/`ClassBuilderWith` now compute the same per-key-intersected brand the chain actually produces.
+
 ## 1.7.0
 
 ### Minor Changes
