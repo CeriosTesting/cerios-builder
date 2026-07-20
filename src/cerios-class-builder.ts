@@ -14,6 +14,7 @@ import type {
 	RequiredFieldsRecord,
 	RequiredKeys,
 	TargetOfMarker,
+	UnionToIntersection,
 	WritableKeys,
 } from "./types";
 
@@ -155,6 +156,22 @@ export type ClassBuilderStep<B, T extends object, S extends keyof T | ClassPath<
 	InternalClassBrand<Pick<DataPropertiesOnly<T>, ClassStepKey<T, S>>>;
 
 /**
+ * Brands T's data properties one key at a time and intersects the results, matching the shape
+ * that chaining single-key `ClassBuilderStep` applications actually produces - rather than one
+ * `Pick` over the whole key union. The two are structurally equivalent for concrete types, but
+ * not always provably assignable to each other when compared against an unresolved polymorphic
+ * `this`, which is what `ClassBuilderWith` is typically instantiated with. Used by
+ * `ClassBuilderWith` only - `ClassBuilderStep` keeps the plain single-`Pick` formula above,
+ * since user code overrides it with a still-generic key parameter (`ClassBuilderStep<this, T, K>`)
+ * far more often than with an explicit key union, and the plain formula is the one that stays
+ * comparable against a deferred `K`.
+ * @internal
+ */
+type ClassBuilderWithBrand<T extends object, K extends keyof DataPropertiesOnly<T>> = [K] extends [never]
+	? InternalClassBrand<Pick<DataPropertiesOnly<T>, never>>
+	: UnionToIntersection<K extends unknown ? InternalClassBrand<Pick<DataPropertiesOnly<T>, K>> : never>;
+
+/**
  * Helper type for factory methods that return a preconfigured class-builder state.
  *
  * @template B - The class-builder instance type
@@ -235,7 +252,7 @@ export type ClassBuilderWith<
 	// polymorphic `this` type and would reject valid keys in `ClassBuilderWith<this, K>`.
 	// `ClassStepKey` below still narrows the brand payload to data properties only.
 	S extends keyof TargetOfMarker<B> = keyof DataPropertiesOnly<TargetOfMarker<B>>,
-> = B & InternalClassBrand<Pick<DataPropertiesOnly<TargetOfMarker<B>>, ClassStepKey<TargetOfMarker<B>, S>>>;
+> = B & ClassBuilderWithBrand<TargetOfMarker<B>, ClassStepKey<TargetOfMarker<B>, S>>;
 
 type ClassBuilderBaseFromFactoryReturn<R> = R extends (infer B) & InternalClassBrand<unknown> ? B : R;
 

@@ -8,7 +8,14 @@ import {
 	toRequiredPaths,
 } from "./auto-builder-core";
 import { CeriosBuilderError, runValidatorsAgainst } from "./builder-error";
-import { BuilderTargetMarker, DeepReadonly, RequiredFieldsRecord, RequiredKeys, TargetOfMarker } from "./types";
+import {
+	BuilderTargetMarker,
+	DeepReadonly,
+	RequiredFieldsRecord,
+	RequiredKeys,
+	TargetOfMarker,
+	UnionToIntersection,
+} from "./types";
 
 /**
  * Unique symbol used internally to brand types and track which properties have been set in the builder's type.
@@ -65,6 +72,22 @@ type StepKey<T extends object, S extends keyof T | Path<T>> = S extends keyof T
  */
 export type BuilderStep<B, T extends object, S extends keyof T | Path<T>> = B &
 	InternalBuilderBrand<Pick<T, StepKey<T, S>>>;
+
+/**
+ * Brands T's writable state one key at a time and intersects the results, matching the shape
+ * that chaining single-key `BuilderStep` applications actually produces - rather than one
+ * `Pick` over the whole key union. The two are structurally equivalent for concrete types, but
+ * not always provably assignable to each other when compared against an unresolved polymorphic
+ * `this`, which is what `BuilderWith` is typically instantiated with. Used by `BuilderWith`
+ * only - `BuilderStep` keeps the plain single-`Pick` formula above, since user code overrides
+ * it with a still-generic key parameter (`BuilderStep<this, T, K>`) far more often than with an
+ * explicit key union, and the plain formula is the one that stays comparable against a
+ * deferred `K`.
+ * @internal
+ */
+type BuilderWithBrand<T extends object, K extends keyof T> = [K] extends [never]
+	? InternalBuilderBrand<Pick<T, never>>
+	: UnionToIntersection<K extends unknown ? InternalBuilderBrand<Pick<T, K>> : never>;
 
 /**
  * Helper type for factory methods that return a preconfigured builder state.
@@ -138,7 +161,7 @@ type BuilderTargetOf<B> =
 export type BuilderWith<
 	B extends BuilderTargetMarker<object>,
 	S extends keyof TargetOfMarker<B> = keyof TargetOfMarker<B>,
-> = B & InternalBuilderBrand<Pick<TargetOfMarker<B>, S>>;
+> = B & BuilderWithBrand<TargetOfMarker<B>, S>;
 
 type BuilderBaseFromFactoryReturn<R> = R extends (infer B) & InternalBuilderBrand<unknown> ? B : R;
 

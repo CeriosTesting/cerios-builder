@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import { CeriosAutoBuilder } from "../../src/cerios-auto-builder";
-import { BuilderStep } from "../../src/cerios-builder";
+import { BuilderStep, BuilderWith } from "../../src/cerios-builder";
 
 type User = {
 	id: string;
@@ -25,6 +25,10 @@ class AdminUserBuilder extends CeriosAutoBuilder<User>() {
 	}
 	asAdmin(): BuilderStep<this, User, "role"> {
 		return this.role("admin");
+	}
+
+	asNamedAdmin(name: string): BuilderWith<this, "name" | "role"> {
+		return this.name(name).role("admin");
 	}
 }
 
@@ -132,6 +136,11 @@ describe("CeriosAutoBuilder - compile-time safety", () => {
 	it("supports custom logic through distinctly-named methods delegating to auto setters", () => {
 		const built = AdminUserBuilder.create().id("1").name("n").asAdmin().build();
 		expect(built.role).toBe("admin");
+	});
+
+	it("allows BuilderWith<this, K1 | K2> for an instance method chaining two setters (issue #10)", () => {
+		const built = AdminUserBuilder.create().id("1").asNamedAdmin("Alice").build();
+		expect(built).toEqual({ id: "1", name: "Alice", role: "admin" });
 	});
 
 	it("takes exactly one type argument - the excluded-keys parameter is gone", () => {

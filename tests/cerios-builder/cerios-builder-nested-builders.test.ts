@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { BuilderComposerFromFactory, BuilderPreset, BuilderStep, CeriosBuilder } from "../../src/cerios-builder";
+import {
+	BuilderComposerFromFactory,
+	BuilderPreset,
+	BuilderStep,
+	BuilderWith,
+	CeriosBuilder,
+} from "../../src/cerios-builder";
 
 type Address = {
 	street: string;
@@ -23,6 +29,13 @@ class AddressBuilder extends CeriosBuilder<Address> {
 	}
 
 	static createWithDefaults(): BuilderPreset<AddressBuilder, Address, "city" | "country"> {
+		return this.create().city("Othertown").country("United States");
+	}
+
+	// Same preset as createWithDefaults, but through the recommended BuilderWith - locks
+	// in that BuilderComposerFromFactory still strips a multi-key BuilderWith brand
+	// correctly (see issue #10).
+	static createWithDefaultsWith(): BuilderWith<AddressBuilder, "city" | "country"> {
 		return this.create().city("Othertown").country("United States");
 	}
 
@@ -84,6 +97,13 @@ class CustomerBuilder extends CeriosBuilder<Customer> {
 		return this.setProperty("address", address);
 	}
 
+	withAddressDefaultsUsingWith(
+		builderFn: BuilderComposerFromFactory<typeof AddressBuilder.createWithDefaultsWith>,
+	): BuilderStep<this, Customer, "address"> {
+		const address = builderFn(AddressBuilder.createWithDefaultsWith()).build();
+		return this.setProperty("address", address);
+	}
+
 	addAddressHistory(
 		builderFn: BuilderComposerFromFactory<typeof AddressBuilder.create>,
 	): BuilderStep<this, Customer, "addressHistory"> {
@@ -127,6 +147,24 @@ describe("Cerios Builder Nested", () => {
 			name: "Jane Smith",
 			address: {
 				street: "456 Elm St",
+				city: "Othertown",
+				country: "United States",
+			},
+		});
+	});
+
+	it("should build customer with default address via a BuilderWith-typed factory", () => {
+		const customer = CustomerBuilder.create()
+			.id("999")
+			.name("Bob Builder")
+			.withAddressDefaultsUsingWith((address) => address.street("1 New St"))
+			.build();
+
+		expect(customer).toEqual({
+			id: "999",
+			name: "Bob Builder",
+			address: {
+				street: "1 New St",
 				city: "Othertown",
 				country: "United States",
 			},
