@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import { CeriosClassAutoBuilder } from "../../src/cerios-class-auto-builder";
-import { ClassBuilderStep } from "../../src/cerios-class-builder";
+import { ClassBuilderStep, ClassBuilderWith } from "../../src/cerios-class-builder";
 
 class Person {
 	name!: string;
@@ -202,6 +202,21 @@ describe("CeriosClassAutoBuilder - compile-time safety", () => {
 		}
 
 		expect(TrimmedBuilder.create().trimmedName("  John  ").age(30).build().name).toBe("John");
+	});
+
+	it("allows ClassBuilderWith<this, K1 | K2> for an instance method chaining two setters (issue #10)", () => {
+		class LabeledBuilder extends CeriosClassAutoBuilder(Person) {
+			static create(): LabeledBuilder {
+				return new LabeledBuilder();
+			}
+
+			setNameAndAge(name: string, age: number): ClassBuilderWith<this, "name" | "age"> {
+				return this.name(name).age(age);
+			}
+		}
+
+		const person = LabeledBuilder.create().setNameAndAge("Alice", 40).build();
+		expect(person).toEqual(new Person({ name: "Alice", age: 40 }));
 	});
 
 	it("takes exactly one argument - the excluded-keys parameter is gone", () => {

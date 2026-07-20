@@ -113,6 +113,22 @@ export type WritableKeys<T> = {
 export type RequiredFieldsRecord<T> = { [K in RequiredKeys<T>]: true };
 
 /**
+ * Converts a union type into an intersection of its members, by putting the union in
+ * contravariant position (as a function parameter) and inferring a single parameter type
+ * from the resulting union of function types - which collapses to an intersection.
+ *
+ * Used to build a branded type that matches what chaining single-key builder steps actually
+ * produces (an intersection of single-key brands), rather than a brand computed from a
+ * `Pick` over the whole key union - the two are structurally equivalent for concrete types,
+ * but not when compared against an unresolved polymorphic `this`.
+ *
+ * @internal
+ */
+export type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) extends (x: infer I) => void
+	? I
+	: never;
+
+/**
  * Recursively makes all properties readonly for deep immutability.
  * Handles arrays, objects, and primitive types.
  *
