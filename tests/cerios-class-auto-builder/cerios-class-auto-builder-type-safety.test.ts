@@ -1,7 +1,14 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import { CeriosClassAutoBuilder } from "../../src/cerios-class-auto-builder";
-import { ClassBuilderStep, ClassBuilderWith } from "../../src/cerios-class-builder";
+import { BuildableThis } from "../../src/auto-builder-core";
+import { CeriosClassAutoBuilder, ClassAutoSetters } from "../../src/cerios-class-auto-builder";
+import {
+	ClassBuilderStep,
+	ClassBuilderWith,
+	InternalClassBrand,
+	WritableDataProperties,
+} from "../../src/cerios-class-builder";
+import { MissingRequiredProperties } from "../../src/types";
 
 class Person {
 	name!: string;
@@ -246,5 +253,52 @@ describe("CeriosClassAutoBuilder - compile-time safety", () => {
 		// No required data properties: the build gate dissolves and a fresh builder builds.
 		expect(SettingsBuilder.create().build()).toBeInstanceOf(Settings);
 		expect(SettingsBuilder.create().theme("dark").build().theme).toBe("dark");
+	});
+});
+
+describe("CeriosClassAutoBuilder - build() compile error", () => {
+	// The `this` type the validated build variants demand from a given builder.
+	type BuildThis<B> = BuildableThis<B, InternalClassBrand<WritableDataProperties<Person>>>;
+
+	it("names exactly the required data properties that are not set", () => {
+		const nameOnly = PersonBuilder.create().name("John");
+		const complete = nameOnly.age(30);
+
+		expectTypeOf<BuildThis<typeof nameOnly>>().toEqualTypeOf<MissingRequiredProperties<"age">>();
+		expectTypeOf<BuildThis<typeof complete>>().toEqualTypeOf<typeof complete>();
+		expect(complete.build()).toBeInstanceOf(Person);
+	});
+
+	it("keeps build() working on `this` inside a builder's own method", () => {
+		class DefaultPersonBuilder extends CeriosClassAutoBuilder(Person) {
+			static create(): DefaultPersonBuilder {
+				return new DefaultPersonBuilder();
+			}
+
+			buildDefault(): Person {
+				return this.name("Default").age(1).build();
+			}
+		}
+
+		expect(DefaultPersonBuilder.create().buildDefault().greet()).toBe("Hi, Default");
+	});
+});
+
+describe("CeriosClassAutoBuilder - generated setter shape", () => {
+	it("generates setters for writable data properties only, with optional ones callable", () => {
+		class Account {
+			readonly id!: string;
+			owner!: string;
+			nickname?: string;
+
+			get label(): string {
+				return `${this.owner} (${this.id})`;
+			}
+
+			close(): void {}
+		}
+
+		expectTypeOf<keyof ClassAutoSetters<Account>>().toEqualTypeOf<"owner" | "nickname">();
+		expectTypeOf<Parameters<ClassAutoSetters<Account>["nickname"]>[0]>().toEqualTypeOf<string | undefined>();
 	});
 });

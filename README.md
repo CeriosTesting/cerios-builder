@@ -54,13 +54,17 @@ class UserBuilder extends CeriosAutoBuilder<User>() {
 // 3. Build - all required properties enforced at compile time
 const user = UserBuilder.create().id("1").name("Alice").email("a@b.io").asAdmin().build();
 
-// ❌ Compile error - email and role are not set:
+// ❌ Compile error that names what is missing:
 // UserBuilder.create().id("1").name("Alice").build();
+//   The 'this' context of type '...' is not assignable to method's 'this' of type
+//   'MissingRequiredProperties<"email" | "role">'.
 
 // ✅ Optional properties can be omitted (age is optional)
 ```
 
 Every property becomes a bare setter (`id`, `name`, …). Custom methods use those setters on `this` and mix freely into the chain, each contributing to the compile-time required-field tracking. If the type has **no** required properties at all, `build()` is available immediately.
+
+The setters are linked to your type in the editor: **Ctrl+Click** (Go to Definition) on `.name(...)` opens `name` in `User`, hovering it shows that property's documentation comment, and renaming the property also renames the setter calls.
 
 ## 🧩 Building Classes: `CeriosClassAutoBuilder`
 
@@ -116,22 +120,26 @@ class AddressBuilder extends CeriosAutoBuilder<Address>() {
 		return AddressBuilder.create().country("NL").street("Main St").city("Rotterdam");
 	}
 
-	inRotterdam(): BuilderWith<this, "city"> {
+	inRotterdam(): BuilderWith<this, "city", AddressBuilder> {
 		return this.city("Rotterdam");
 	}
 }
 ```
 
-| What the method does            | Return type                              |
-| ------------------------------- | ---------------------------------------- |
-| Factory, nothing preset         | `AddressBuilder`                         |
-| Factory presetting some fields  | `BuilderWith<AddressBuilder, "country">` |
-| Factory presetting everything   | `BuilderWith<AddressBuilder>`            |
-| Custom method setting one field | `BuilderWith<this, "city">`              |
-| Custom method setting several   | `BuilderWith<this, "city" \| "street">`  |
-| Class builders                  | the same, with `ClassBuilderWith<>`      |
+| What the method does            | Return type                                             |
+| ------------------------------- | ------------------------------------------------------- |
+| Factory, nothing preset         | `AddressBuilder`                                        |
+| Factory presetting some fields  | `BuilderWith<AddressBuilder, "country">`                |
+| Factory presetting everything   | `BuilderWith<AddressBuilder>`                           |
+| Custom method setting one field | `BuilderWith<this, "city", AddressBuilder>`             |
+| Custom method setting several   | `BuilderWith<this, "city" \| "street", AddressBuilder>` |
+| Class builders                  | the same, with `ClassBuilderWith<>`                     |
 
-**Instance methods must use `this`, not the class name.** `BuilderWith<this, "city">` keeps everything set earlier in the chain; naming the concrete class would discard it and `build()` would stop compiling. Returning a plain `AddressBuilder` has the same problem — always return the setter result.
+**Instance methods start with `this`.** `this` keeps everything set earlier in the chain; naming the class there instead would return a plain `AddressBuilder` and discard that, so `build()` would stop compiling.
+
+The third argument, the builder class, is only where the property names are looked up — that is what makes them **autocomplete** inside the quotes. `BuilderWith<this, "city">` describes exactly the same type and keeps working, but editors cannot list the property names for `this`, so there are no suggestions until the class is added. Existing two-argument methods only need the class appended. In a new method, type the class first (`BuilderWith<this, "", AddressBuilder>`), then fill in the quotes.
+
+> **Tip:** VS Code only suggests inside quotes when you type the opening quote or press **Ctrl+Space**. To get suggestions while typing inside a string, set `"editor.quickSuggestions": { "strings": "on" }`.
 
 ### Builder fields
 
@@ -208,7 +216,7 @@ class CreatePostRequestBuilder extends BasePostRequestBuilder(CeriosAutoBuilder<
 }
 ```
 
-Inside the function, `this` exposes a setter for every property of the base type plus the brand-free part of the build/state API: `buildPartial()`, `buildUnsafe()`, `buildWithoutCompileTimeValidation()`, `clone()`, and `addValidator()` — so shared methods can fork, validate, and build. (The compile-gated variants like `build()` need the derived builder's brand and stay derived-only.) Each derived builder keeps its own full API: all setters, per-builder required fields, and the static `from()`. Setter calls in shared methods brand the build gate like any other setter, so `create().addTag("x")` counts toward compile-time validation — and if your lint requires explicit return types, `BuilderWith<this, "tags">` (or `ClassBuilderWith<>`) works on shared methods exactly as in [Custom Methods](#-custom-methods). The `BuilderExtension<TBuilder, TShared>` return type is what keeps the derived setters and statics visible on the result — don't leave it off.
+Inside the function, `this` exposes a setter for every property of the base type plus the brand-free part of the build/state API: `buildPartial()`, `buildUnsafe()`, `buildWithoutCompileTimeValidation()`, `clone()`, and `addValidator()` — so shared methods can fork, validate, and build. (The compile-gated variants like `build()` need the derived builder's brand and stay derived-only.) Each derived builder keeps its own full API: all setters, per-builder required fields, and the static `from()`. Setter calls in shared methods brand the build gate like any other setter, so `create().addTag("x")` counts toward compile-time validation — and if your lint requires explicit return types, `BuilderWith<this, "tags">` (or `ClassBuilderWith<>`) works on shared methods as in [Custom Methods](#-custom-methods). Use the two-argument `this` form here: inside a base-builder function there is no concrete builder class to name. The `BuilderExtension<TBuilder, TShared>` return type is what keeps the derived setters and statics visible on the result — don't leave it off.
 
 For class hierarchies the shape is identical; the base class may be abstract, because it is only used as a type:
 
@@ -326,6 +334,14 @@ The `instanceof` check is also what makes this compile under `useUnknownInCatchV
 | `buildUnsafe()`                       | ❌                 | ❌            | Trusted scenarios only |
 | `buildPartial()`                      | ❌                 | ❌            | Incomplete objects     |
 
+When a compile-time-checked variant is called too early, the error ends with the properties that are still missing:
+
+```text
+The 'this' context of type 'InternalBuilderStep<UserBuilder, User, "id">' is not assignable to method's 'this' of type 'MissingRequiredProperties<"name" | "role">'.
+```
+
+Set the listed properties and the call compiles. If a property is listed because you removed it with `removeRequiredProperty`, see [Seeding, Cloning, and Removing](#-seeding-cloning-and-removing).
+
 ```typescript
 // Runtime-only validation is useful when building from external data:
 function buildFromApi(data: Record<string, unknown>): User {
@@ -365,14 +381,16 @@ class CustomerBuilder extends CeriosAutoBuilder<Customer>() {
 		return new CustomerBuilder({});
 	}
 
-	withAddress(fn: BuilderComposerFromFactory<typeof AddressBuilder.createWithDefaults>): BuilderWith<this, "address"> {
+	withAddress(
+		fn: BuilderComposerFromFactory<typeof AddressBuilder.createWithDefaults>,
+	): BuilderWith<this, "address", CustomerBuilder> {
 		return this.address(fn(AddressBuilder.createWithDefaults()).build());
 	}
 
 	// Factory presets everything -> the callback can be optional
 	withCompleteAddress(
 		fn?: BuilderComposerFromFactory<typeof AddressBuilder.createComplete>,
-	): BuilderWith<this, "address"> {
+	): BuilderWith<this, "address", CustomerBuilder> {
 		const builder = AddressBuilder.createComplete();
 		return this.address(fn ? fn(builder).build() : builder.build());
 	}
@@ -476,9 +494,14 @@ const fork = builder.clone();
 // Remove optional properties:
 builder.removeOptionalProperty("age"); // one optional key
 builder.clearOptionalProperties(); // all optional keys, required ones survive
+
+// Remove a required property - e.g. to build an invalid object for a negative test:
+const withoutName = UserBuilder.from(existingUser).removeRequiredProperty("name").buildUnsafe();
 ```
 
 Everything is copy-on-write: each call returns a new builder, and builders never share mutable state with each other or with the objects they build.
+
+After `removeRequiredProperty`, the compile-time-checked variants (`build()`, `buildFrozen()`, …) no longer compile on that builder — their error lists the removed property. Use `buildUnsafe()` or `buildPartial()` to get the incomplete object. Setting the property again on that same builder does not lift this (the compile-time tracking cannot forget a removal); since builders are immutable, build from the builder you had before the removal instead.
 
 ## 🧪 Testing Integration
 
@@ -494,7 +517,7 @@ class ProductBuilder extends CeriosAutoBuilder<Product>() {
 		return ProductBuilder.create().name("Widget").price(9.99).category("Tools");
 	}
 
-	asFree(): BuilderWith<this, "price"> {
+	asFree(): BuilderWith<this, "price", ProductBuilder> {
 		return this.price(0);
 	}
 }
@@ -514,10 +537,11 @@ test("free products skip payment", () => {
 - **Getter-only class accessors** (`get displayName() { ... }`) are computed by the class. Because a getter without a setter is `readonly` at the type level, no setter is generated — the misuse is a **compile error**. A runtime guard also throws a clear `CeriosBuilderError` naming the accessor, for untyped access (types are erased at runtime, so the proxy cannot see `readonly`) and for seed data. Accessors with both a getter and a setter are writable and get a setter as normal.
 - **Symbol-keyed properties** are outside the builder's model: setters are generated for string keys only, and state snapshots deep-clone via string keys, so a symbol-keyed value doesn't survive a build. If a required property is symbol-keyed, the compile gate cannot be satisfied — seed via `from()` or use `buildUnsafe()`.
 - **Builder subclass fields are carried by reference** across the copy-on-write forks every setter creates: a `Map` or array field on your builder class is shared between all forks and clones. Only the target data is deep-cloned — keep per-fork state in the target data, not in builder fields.
+- **`Prop`-suffixed setters** (for properties named after a builder member, like `buildProp`) are not linked to the property declaration, so Ctrl+Click on them does not open the property. All other setters are linked.
 
 ## 🗑️ Deprecated: `CeriosBuilder` and `CeriosClassBuilder`
 
-The hand-written builder base classes — where you write a `setProperty` wrapper per property — are **deprecated and will be removed in the next major version**. They still work in this release, unchanged, including `setNestedProperty` and `addToArrayProperty`.
+The hand-written builder base classes — where you write a `setProperty` wrapper per property — are **deprecated and will be removed in the next major version**. They still work in this release, including `setNestedProperty` and `addToArrayProperty`, and share the auto builders' build error and `removeRequiredProperty`.
 
 **Migrate to the auto builders**: see **[MIGRATION.md](MIGRATION.md)** for a per-feature before/after guide, including:
 
@@ -525,6 +549,8 @@ The hand-written builder base classes — where you write a `setProperty` wrappe
 - moving `static requiredTemplate` / `requiredDataProperties` to constructor options,
 - replacing `setNestedProperty` with the [director pattern](#the-director-pattern),
 - replacing `addToArrayProperty` with a custom method on the root setter.
+
+The helper types that only made sense for the hand-written builders, such as `BuilderStep`, `BuilderPreset`, `BuilderComposer`, `BuildGate` and `RequiredFieldsTemplate`, are deprecated too. They are still exported. [MIGRATION.md § Deprecated helper types](MIGRATION.md#10-deprecated-helper-types) lists the replacement for each one.
 
 ## 📚 API Reference
 
@@ -538,17 +564,19 @@ The hand-written builder base classes — where you write a `setProperty` wrappe
 Both auto builders share one constructor shape, with the options named by the exported `BuilderInit` type:
 
 ```typescript
-new Builder(data?: Partial<T>, init?: BuilderInit<T>)
+new Builder(data?: Partial<T>, init?: BuilderInit<T, P, Data>)
 
-type BuilderInit<T> = {
-	requiredFields?: ReadonlyArray<Path<T>> | RequiredFieldsRecord<T>;
+type BuilderInit<T, P, Data = T> = {
+	requiredFields?: ReadonlyArray<P> | RequiredFieldsRecord<Data>;
 	validators?: Array<(obj: Partial<T>) => boolean | string>;
 };
 ```
 
+To name the options yourself, use `BuilderInit<User, Path<User>>` for `CeriosAutoBuilder<User>()` and `BuilderInit<Person, ClassPath<Person>, DataPropertiesOnly<Person>>` for `CeriosClassAutoBuilder(Person)`. The class form takes data properties only, never methods.
+
 ### Instance methods
 
-`build()`, `buildWithoutRuntimeValidation()`, `buildWithoutCompileTimeValidation()`, `buildUnsafe()`, `buildPartial()`, `buildFrozen()`, `buildDeepFrozen()`, `buildSealed()`, `buildDeepSealed()`, `addValidator()`, `setRequiredFields()`, `removeOptionalProperty()`, `clearOptionalProperties()`, `clone()` — see the sections above.
+`build()`, `buildWithoutRuntimeValidation()`, `buildWithoutCompileTimeValidation()`, `buildUnsafe()`, `buildPartial()`, `buildFrozen()`, `buildDeepFrozen()`, `buildSealed()`, `buildDeepSealed()`, `addValidator()`, `setRequiredFields()`, `removeOptionalProperty()`, `removeRequiredProperty()`, `clearOptionalProperties()`, `clone()` — see the sections above.
 
 ### Statics
 
@@ -556,19 +584,28 @@ type BuilderInit<T> = {
 
 ### Helper types
 
-- `BuilderWith<B, S>` / `ClassBuilderWith<B, S>` — explicit return types for factories and custom methods; `S` is the union of keys set, omit for "fully buildable".
+- `BuilderWith<B, S, KeysFrom>` / `ClassBuilderWith<B, S, KeysFrom>` — explicit return types for factories and custom methods; `B` is the builder returned (`this` in instance methods); `S` is the union of keys set, omit for "fully buildable"; `KeysFrom` is the builder class the keys are checked against and suggested from (defaults to `B`, pass the class when `B` is `this`).
+- `MissingRequiredProperties<K>` — the type the build error names when the required properties `K` are not set.
+- `RemovedRequiredProperties<K>` — the marker `removeRequiredProperty` adds; it keeps the compile-time-checked build variants unavailable.
 - `AutoBuilderBase<TBase>` / `ClassAutoBuilderBase<TBase>` — constraint for [base-builder functions](#sharing-custom-methods-the-base-builder-function) sharing logic across derived types.
 - `BuilderExtension<TBuilder, TShared>` — return type of a base-builder function; keeps the derived builder's setters and statics visible.
 - `BuilderComposerFromFactory<F>` / `ClassBuilderComposerFromFactory<F>` — callback types for nested-builder composition, inferred from a factory.
-- `BuildGate<T>` / `ClassBuildGate<T>` — the `this` constraint on the validated build variants; dissolves for all-optional types.
-- `BuilderInit<T>` — the named `{ requiredFields?, validators? }` constructor-options type both auto builders accept.
+- `BuilderInit<T, P, Data>` — the named `{ requiredFields?, validators? }` constructor-options type both auto builders accept: `BuilderInit<T, Path<T>>` for object builders, `BuilderInit<T, ClassPath<T>, DataPropertiesOnly<T>>` for class builders.
 - `AutoBuilderConstructor<T>` / `ClassAutoBuilderConstructor<T>` — the abstract constructor type a factory returns; name it when storing or passing a factory result.
 - `AutoBuilderApi<T>` / `ClassAutoBuilderApi<T>` — the build/validate/clone instance API every auto builder exposes, without the generated setters.
 - `AutoSetters<T>` / `ClassAutoSetters<T>` — the generated bare-name setters (one per property; the class variant covers **writable** data properties only — methods, getter-only accessors, and `readonly` fields are excluded).
 - `DataPropertiesOnly<T>` — a class type with its methods stripped; the shape the class builders track and build from.
-- `ClassConstructor<T>` — the constructor signature `CeriosClassBuilder` requires of a target class.
-- `RequiredFieldsRecord<T>`, `RequiredFieldsTemplate<T>`, `Path<T>`, `ClassPath<T>`, `DeepReadonly<T>`, `OptionalKeys<T>`, `RequiredKeys<T>`, `WritableKeys<T>`.
-- `BuilderStep` / `ClassBuilderStep`, `BuilderPreset` / `ClassBuilderPreset`, `BuilderComposer` / `ClassBuilderComposer` — the longer three-argument forms `BuilderWith` supersedes; still exported and supported.
+- `ClassConstructor<T>` — the constructor signature `CeriosClassAutoBuilder(Class)` accepts for a target class.
+- `InternalBuilderStep` / `InternalClassBuilderStep` — the type every generated setter returns. It shows up in hovers and in the build error; don't write it yourself, use `BuilderWith` / `ClassBuilderWith`.
+- `RequiredFieldsRecord<T>`, `Path<T>`, `ClassPath<T>`, `DeepReadonly<T>`, `OptionalKeys<T>`, `RequiredKeys<T>`, `WritableKeys<T>`.
+
+**Deprecated, still exported** (see [MIGRATION.md](MIGRATION.md#10-deprecated-helper-types) for before/after):
+
+- `BuilderStep` / `ClassBuilderStep`, `BuilderPreset` / `ClassBuilderPreset` → `BuilderWith` / `ClassBuilderWith`
+- `BuilderComposer` / `ClassBuilderComposer` → `BuilderComposerFromFactory` / `ClassBuilderComposerFromFactory`
+- `BuildGate` / `ClassBuildGate` → `BuilderWith<YourBuilder>` / `ClassBuilderWith<YourBuilder>`
+- `RequiredFieldsTemplate<T>` → `RequiredFieldsRecord<T>`, or `ReadonlyArray<Path<T>>` for nested paths
+- `CeriosBrand` / `CeriosClassBrand`, `BuilderType` → `BuilderWith` / `BuilderComposerFromFactory`
 
 ## 🤝 Contributing
 

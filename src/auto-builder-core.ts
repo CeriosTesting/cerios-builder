@@ -5,7 +5,17 @@
  * @internal
  */
 
-import type { DeepReadonly, OptionalKeys, RequiredFieldsRecord } from "./types";
+import type {
+	DeepReadonly,
+	DemandedKeys,
+	MissingRequiredProperties,
+	NoRemovedRequiredProperties,
+	OptionalKeys,
+	RemovedKeysOf,
+	RemovedRequiredProperties,
+	RequiredFieldsRecord,
+	RequiredKeys,
+} from "./types";
 
 /**
  * Names that are real methods/fields on the builder and therefore cannot be used
@@ -31,6 +41,7 @@ export const RESERVED_BUILDER_NAMES = [
 	"addValidator",
 	"setRequiredFields",
 	"removeOptionalProperty",
+	"removeRequiredProperty",
 	"clearOptionalProperties",
 	// Property mutators. Protected on `CeriosBuilder`, but still present on the
 	// prototype chain, so the proxy would return the real method instead of a setter.
@@ -86,17 +97,48 @@ export const RESERVED_BUILDER_NAMES = [
 export type ReservedBuilderName = (typeof RESERVED_BUILDER_NAMES)[number];
 
 /**
- * Maps a property key to its auto-setter method name.
- * Reserved names get a `Prop` suffix; a literal `${Reserved}Prop` key is excluded
- * (no setter) so the suffix scheme stays unambiguous.
+ * The property keys that get a setter under their own name: string keys that are neither a
+ * reserved builder member nor a literal `${Reserved}Prop` (excluded so the suffix scheme
+ * stays unambiguous). Reserved keys get a `Prop`-suffixed setter via {@link ReservedSetterName}.
+ *
+ * Used as the `as` clause of a mapped type over `keyof T`. Because it only ever maps a key to
+ * itself or to `never`, TypeScript treats the mapped type as *filtering* and links each
+ * setter to the property it was generated from: Ctrl+Click on a setter opens the property's
+ * declaration, and hovering it shows the property's JSDoc.
  *
  * @internal
  */
-export type SetterName<K extends string> = K extends ReservedBuilderName
-	? `${K}Prop`
-	: K extends `${ReservedBuilderName}Prop`
+export type DirectSetterKey<K> = K extends string
+	? K extends ReservedBuilderName | `${ReservedBuilderName}Prop`
 		? never
-		: K;
+		: K
+	: never;
+
+/**
+ * The `Prop`-suffixed setter name for a property key that collides with a builder member
+ * (a property named `build` is set with `buildProp`); `never` for every other key.
+ *
+ * Kept apart from {@link DirectSetterKey}: renaming a key makes the mapped type a
+ * *remapping* one, which loses the link to the property declaration. Splitting the two
+ * keeps that loss confined to the rare reserved-name properties.
+ *
+ * @internal
+ */
+export type ReservedSetterName<K> = K extends ReservedBuilderName ? `${K}Prop` : never;
+
+/**
+ * T itself, but opaque while T is generic, for use as `keyof NonDistributive<T>` in the
+ * setter maps.
+ *
+ * A mapped type over `keyof T` distributes over a union T, which would turn the setters of
+ * `CeriosAutoBuilder<A | B>()` into a union of two setter maps - not a valid base class.
+ * `keyof (T & {})` does not help: TypeScript simplifies it straight back to `keyof T`. A
+ * deferred conditional is not simplified, so the mapping no longer distributes, while the
+ * `keyof X` form still links every setter to the property declaration it came from.
+ *
+ * @internal
+ */
+export type NonDistributive<T> = [T] extends [unknown] ? T : never;
 
 const RESERVED_SET: ReadonlySet<string> = new Set(RESERVED_BUILDER_NAMES);
 
@@ -374,8 +416,14 @@ export const autoSetterHandler: ProxyHandler<object> = {
  * `(classConstructor, data, validators, requiredFields)`). Naming them removes that trap
  * and lets both auto builders expose one identical constructor shape.
  *
+ * Name it as `BuilderInit<User, Path<User>>` for `CeriosAutoBuilder<User>()`, and as
+ * `BuilderInit<Person, ClassPath<Person>, DataPropertiesOnly<Person>>` for
+ * `CeriosClassAutoBuilder(Person)`.
+ *
  * @template T - The type being built
  * @template P - The valid required-field path type for this builder
+ * @template Data - The shape the required-fields record is checked against: `T` for object
+ * builders, `DataPropertiesOnly<T>` for class builders
  */
 export type BuilderInit<T extends object, P, Data extends object = T> = {
 	requiredFields?: ReadonlyArray<P> | RequiredFieldsRecord<Data>;
@@ -501,9 +549,65 @@ export function toRequiredPaths(fields: ReadonlyArray<unknown> | object): Readon
 }
 
 /**
+ * The payload of a single-key brand type: `T` for `InternalBuilderBrand<T>`,
+ * `P` for `InternalClassBrand<P>`.
+ * @internal
+ */
+type BrandPayload<RequiredBrand> = RequiredBrand[keyof RequiredBrand];
+
+/**
+ * The keys of a brand payload that a builder has not branded (correctly) yet.
+ *
+ * The check is per key and type-aware, not a `keyof` difference: a base type's builder can
+ * brand a property as its *optional* flavour, which does not satisfy a derived type that
+ * strengthens that property to required, and must still be reported.
+ *
+ * Produces a mapped type to be indexed by its own keys at the use site, rather than the
+ * resulting union: a union built inside a type alias keeps the alias name, so the compile
+ * error would show `UnbrandedKeys<...>` instead of `"name" | "role"`.
+ *
+ * @internal
+ */
+type UnbrandedKeyMap<Self, RequiredBrand> = {
+	[K in DemandedKeys<BrandPayload<RequiredBrand>>]: [Self] extends [
+		{ [P in keyof RequiredBrand]: Pick<BrandPayload<RequiredBrand>, K & keyof BrandPayload<RequiredBrand>> },
+	]
+		? never
+		: K;
+};
+
+/**
+ * The `this` type of the compile-time-validated build variants.
+ *
+ * `Self` is inferred from the receiver, so it sees every brand accumulated along the chain -
+ * including inside a builder's own methods, where the receiver is `this` plus brands.
+ * - When the type has no required properties there is nothing to check: `unknown`, so
+ *   `build()` is callable on a fresh builder. This branch never mentions `Self`, so it also
+ *   resolves on an unresolved polymorphic `this`.
+ * - When the accumulated brand covers the required properties (the same whole-brand
+ *   assignability check the deprecated builders use) and nothing was removed: `Self`, which
+ *   the receiver trivially satisfies. For a receiver that is still generic, TypeScript
+ *   decides this from the brands alone, so builder methods and generic helpers keep compiling.
+ * - Otherwise: {@link MissingRequiredProperties}, which no builder is assignable to. The
+ *   compile error then ends with the names of the missing properties instead of a chain of
+ *   brand types.
+ *
+ * @template Self - The receiver type (inferred)
+ * @template RequiredBrand - The brand a fully set builder carries
+ * @internal
+ */
+export type BuildableThis<Self, RequiredBrand> = [RequiredKeys<BrandPayload<RequiredBrand>>] extends [never]
+	? unknown
+	: [Self] extends [RequiredBrand & NoRemovedRequiredProperties]
+		? Self
+		: MissingRequiredProperties<
+				UnbrandedKeyMap<Self, RequiredBrand>[DemandedKeys<BrandPayload<RequiredBrand>>] | RemovedKeysOf<Self>
+			>;
+
+/**
  * The members both auto builders declare identically once their two axes of variation are
- * named: the data view (`T` itself, or `DataPropertiesOnly<T>` for classes) and the brand
- * used to gate the validated build variants.
+ * named: the data view (`T` itself, or `DataPropertiesOnly<T>` for classes) and the brand a
+ * fully set builder carries, which gates the validated build variants.
  *
  * `setProperty`, `setNestedProperty`, and `addToArrayProperty` are deliberately **not**
  * here or anywhere on the auto-builder API: an auto builder sets a whole root property
@@ -512,21 +616,22 @@ export function toRequiredPaths(fields: ReadonlyArray<unknown> | object): Readon
  *
  * @template T - The type being built
  * @template Data - The settable view of T (`T`, or `DataPropertiesOnly<T>` for classes)
- * @template Brand - The phantom brand that gates the validated build variants
+ * @template RequiredBrand - The brand a builder carries once every required property is set
  * @template PathType - The valid required-field path type for this builder
  */
-export interface CommonAutoBuilderApi<T extends object, Data extends object, Brand, PathType> {
+export interface CommonAutoBuilderApi<T extends object, Data extends object, RequiredBrand, PathType> {
 	/**
 	 * Builds with compile-time and runtime validation.
-	 * Only callable once every required property has been set.
+	 * Only callable once every required property has been set; until then the compile error
+	 * names the missing properties (`MissingRequiredProperties<"name" | "role">`).
 	 * @throws {Error} If a required field is missing or a validator fails
 	 */
-	build(this: this & Brand): T;
+	build<Self>(this: BuildableThis<Self, RequiredBrand>): T;
 
 	/**
 	 * Builds with compile-time validation only, skipping runtime checks.
 	 */
-	buildWithoutRuntimeValidation(this: this & Brand): T;
+	buildWithoutRuntimeValidation<Self>(this: BuildableThis<Self, RequiredBrand>): T;
 
 	/**
 	 * Builds with runtime validation only, skipping compile-time checks.
@@ -548,25 +653,25 @@ export interface CommonAutoBuilderApi<T extends object, Data extends object, Bra
 	 * Builds, validates, and shallowly freezes the result.
 	 * @throws {Error} If a required field is missing or a validator fails
 	 */
-	buildFrozen(this: this & Brand): Readonly<T>;
+	buildFrozen<Self>(this: BuildableThis<Self, RequiredBrand>): Readonly<T>;
 
 	/**
 	 * Builds, validates, and recursively freezes the result.
 	 * @throws {Error} If a required field is missing or a validator fails
 	 */
-	buildDeepFrozen(this: this & Brand): DeepReadonly<T>;
+	buildDeepFrozen<Self>(this: BuildableThis<Self, RequiredBrand>): DeepReadonly<T>;
 
 	/**
 	 * Builds, validates, and shallowly seals the result.
 	 * @throws {Error} If a required field is missing or a validator fails
 	 */
-	buildSealed(this: this & Brand): T;
+	buildSealed<Self>(this: BuildableThis<Self, RequiredBrand>): T;
 
 	/**
 	 * Builds, validates, and recursively seals the result.
 	 * @throws {Error} If a required field is missing or a validator fails
 	 */
-	buildDeepSealed(this: this & Brand): T;
+	buildDeepSealed<Self>(this: BuildableThis<Self, RequiredBrand>): T;
 
 	/**
 	 * Creates an independent copy of the builder with deep-cloned state.
@@ -595,8 +700,30 @@ export interface CommonAutoBuilderApi<T extends object, Data extends object, Bra
 
 	/**
 	 * Removes a previously set optional property.
+	 * For a required property, use {@link removeRequiredProperty}.
 	 */
 	removeOptionalProperty<K extends OptionalKeys<Data>>(key: K): this;
+
+	/**
+	 * Removes a required property - typically to produce an invalid object for a negative
+	 * test. For an optional property, use {@link removeOptionalProperty}.
+	 *
+	 * The returned builder can no longer use the compile-time-validated build variants
+	 * (`build()`, `buildFrozen()`, ...): their compile error lists the removed property. Use
+	 * `buildUnsafe()` or `buildPartial()` to get the incomplete object.
+	 *
+	 * Setting the property again on the returned builder does not lift that restriction - the
+	 * compile-time tracking cannot forget a removal. Builders are immutable, so build from the
+	 * builder you had before the removal instead.
+	 *
+	 * @example
+	 * ```typescript
+	 * const valid = UserBuilder.create().id("1").name("Alice").role("admin");
+	 * const withoutName = valid.removeRequiredProperty("name").buildUnsafe(); // { id: "1", role: "admin" }
+	 * valid.build(); // still fine - `valid` is unaffected
+	 * ```
+	 */
+	removeRequiredProperty<K extends RequiredKeys<Data>>(key: K): this & RemovedRequiredProperties<K>;
 
 	/**
 	 * Clears all optional properties, keeping the required ones.

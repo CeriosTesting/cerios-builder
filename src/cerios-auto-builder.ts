@@ -2,21 +2,45 @@
 import {
 	BuilderInit,
 	CommonAutoBuilderApi,
-	SetterName,
+	DirectSetterKey,
+	NonDistributive,
+	ReservedSetterName,
 	assertBuilderInit,
 	autoSetterHandler,
 	createBuilderCopy,
 	toRequiredPaths,
 } from "./auto-builder-core";
-import {
-	BuildGate,
-	BuilderStep,
-	CeriosBuilder,
-	InternalBuilderBrand,
-	Path,
-	RequiredFieldsTemplate,
-} from "./cerios-builder";
+import { CeriosBuilder, InternalBuilderBrand, InternalBuilderStep, Path } from "./cerios-builder";
 import { BuilderTargetMarker } from "./types";
+
+/**
+ * The setter maps for T, with each setter accepting `V[K]`.
+ *
+ * Two maps rather than one, both over `keyof NonDistributive<T>`:
+ * - The first keeps every setter under its property's own name. Mapping over `keyof X` with
+ *   an `as` clause that only filters is what lets TypeScript link each setter to the property
+ *   it came from, so Ctrl+Click on `builder.city` opens `city` in the user's type and hovering
+ *   it shows the property's JSDoc.
+ * - The second renames reserved keys to `${K}Prop`. Renaming breaks that link, so it is
+ *   confined to this (rare) map.
+ *
+ * {@link NonDistributive} keeps a union target (`CeriosAutoBuilder<A | B>()`) from splitting
+ * into a union of setter maps. `-?` and `-readonly` undo the modifiers a `keyof X` mapping
+ * copies from X: an optional property must still get a callable (not possibly-undefined) setter.
+ *
+ * @internal
+ */
+type SetterMaps<T extends object, V> = {
+	-readonly [K in keyof NonDistributive<T> as DirectSetterKey<K>]-?: <Self>(
+		this: Self,
+		value: V[K & keyof V],
+	) => InternalBuilderStep<Self, T, K & keyof T>;
+} & {
+	-readonly [K in keyof NonDistributive<T> as ReservedSetterName<K>]-?: <Self>(
+		this: Self,
+		value: V[K & keyof V],
+	) => InternalBuilderStep<Self, T, K & keyof T>;
+};
 
 /**
  * Automatic setter methods: one bare `<propertyName>` method per property of T.
@@ -26,14 +50,13 @@ import { BuilderTargetMarker } from "./types";
  * identifiers (e.g. `"content-type"`) are set with bracket access
  * (`builder["content-type"](value)`).
  *
- * Each setter returns a {@link BuilderStep} so the phantom-brand compile-time
- * tracking accumulates exactly like a hand-written setter.
+ * Each setter returns a {@link InternalBuilderStep} so the phantom-brand compile-time
+ * tracking accumulates exactly like a hand-written setter. Ctrl+Click on a setter
+ * opens the property it sets.
  *
  * @template T - The type being built
  */
-export type AutoSetters<T extends object> = {
-	[K in keyof T & string as SetterName<K>]: <Self>(this: Self, value: T[K]) => BuilderStep<Self, T, K & keyof T>;
-};
+export type AutoSetters<T extends object> = SetterMaps<T, T>;
 
 /**
  * The public API shared by every auto builder instance.
@@ -46,7 +69,7 @@ export type AutoSetters<T extends object> = {
  * @template T - The type being built
  */
 export interface AutoBuilderApi<T extends object>
-	extends BuilderTargetMarker<T>, CommonAutoBuilderApi<T, T, BuildGate<T>, Path<T>> {}
+	extends BuilderTargetMarker<T>, CommonAutoBuilderApi<T, T, InternalBuilderBrand<T>, Path<T>> {}
 
 /**
  * The typed abstract constructor returned by {@link CeriosAutoBuilder}. Instances
@@ -120,12 +143,8 @@ export type AutoBuilderConstructor<T extends object> = (abstract new (
 export type AutoBuilderBase<TBase extends object> = abstract new (
 	// oxlint-disable-next-line typescript/no-explicit-any -- the canonical mixin constraint; `any[]` keeps every concrete auto-builder constructor assignable
 	...args: any[]
-) => {
-	[K in keyof TBase & string as SetterName<K>]: <Self>(
-		this: Self,
-		value: NonNullable<TBase[K]>,
-	) => BuilderStep<Self, TBase, K & keyof TBase>;
-} & BuilderTargetMarker<TBase> &
+) => SetterMaps<TBase, { [K in keyof TBase]-?: NonNullable<TBase[K]> }> &
+	BuilderTargetMarker<TBase> &
 	Pick<AutoBuilderApi<TBase>, "buildPartial" | "buildUnsafe" | "buildWithoutCompileTimeValidation"> & {
 		/** Creates an independent copy of the builder with deep-cloned state. */
 		clone<Self>(this: Self): Self;
@@ -142,22 +161,24 @@ export type AutoBuilderBase<TBase extends object> = abstract new (
 class AutoBuilderRuntime<T extends object> extends CeriosBuilder<T> {
 	public constructor(
 		data: Partial<T> = {},
-		initOrRequiredFields?: BuilderInit<T, Path<T>> | RequiredFieldsTemplate<T>,
+		initOrRequiredFields?: BuilderInit<T, Path<T>> | ReadonlyArray<Path<T>>,
 		validators?: Array<(obj: Partial<T>) => boolean | string>,
 	) {
-		// CeriosBuilder's copy-on-write re-creates instances as
-		// `new this.constructor(data, requiredFields, validators)`, so an array in the second
-		// position is that internal path; anything else is the user-facing `init` object.
+		// The typed shape is (data, init). An array in the second position is the deprecated
+		// CeriosBuilder's positional contract `(data, requiredFields, validators)`. Nothing in
+		// the library takes that path any more, because `instantiateBuilder` is overridden
+		// below. It stays only so untyped callers keep working, and goes away together with
+		// CeriosBuilder in the next major.
 		if (initOrRequiredFields !== undefined && !Array.isArray(initOrRequiredFields)) {
 			const init = initOrRequiredFields as BuilderInit<T, Path<T>>;
 			assertBuilderInit(init);
 			const required =
 				init.requiredFields === undefined
 					? undefined
-					: (toRequiredPaths(init.requiredFields) as RequiredFieldsTemplate<T>);
+					: (toRequiredPaths(init.requiredFields) as ReadonlyArray<Path<T>>);
 			super(data, required, init.validators);
 		} else {
-			super(data, initOrRequiredFields as RequiredFieldsTemplate<T> | undefined, validators);
+			super(data, initOrRequiredFields as ReadonlyArray<Path<T>> | undefined, validators);
 		}
 		// The assertion drives Proxy's generic inference to `this`; without it tsc infers
 		// `object` from the handler and rejects the constructor return type (TS2409).
@@ -174,7 +195,7 @@ class AutoBuilderRuntime<T extends object> extends CeriosBuilder<T> {
 	 */
 	protected override instantiateBuilder(
 		data: Partial<T>,
-		requiredFields: RequiredFieldsTemplate<T> | ReadonlySet<string>,
+		requiredFields: ReadonlyArray<Path<T>> | ReadonlySet<string>,
 		validators: Array<(obj: Partial<T>) => boolean | string>,
 	): this {
 		return new Proxy(
@@ -199,7 +220,7 @@ class AutoBuilderRuntime<T extends object> extends CeriosBuilder<T> {
  *
  * class UserBuilder extends CeriosAutoBuilder<User>() {
  *   static create(): UserBuilder { return new UserBuilder({}); }
- *   asAdmin() { return this.role("admin"); } // inferred BuilderStep<this, User, "role">
+ *   asAdmin() { return this.role("admin"); } // inferred InternalBuilderStep<this, User, "role">
  * }
  *
  * const user = UserBuilder.create().id("1").name("Alice").asAdmin().build();

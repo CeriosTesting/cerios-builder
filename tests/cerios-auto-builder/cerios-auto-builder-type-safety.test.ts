@@ -1,7 +1,9 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import { CeriosAutoBuilder } from "../../src/cerios-auto-builder";
-import { BuilderStep, BuilderWith } from "../../src/cerios-builder";
+import { BuildableThis } from "../../src/auto-builder-core";
+import { AutoSetters, CeriosAutoBuilder } from "../../src/cerios-auto-builder";
+import { BuilderStep, BuilderWith, InternalBuilderBrand } from "../../src/cerios-builder";
+import { MissingRequiredProperties } from "../../src/types";
 
 type User = {
 	id: string;
@@ -152,5 +154,96 @@ describe("CeriosAutoBuilder - compile-time safety", () => {
 	it("keeps a fully-set builder assignable to the plain subclass type", () => {
 		const plain: UserBuilder = UserBuilder.create().id("1").name("n").role("r");
 		expect(plain.buildPartial().id).toBe("1");
+	});
+});
+
+describe("CeriosAutoBuilder - build() compile error", () => {
+	// The `this` type the validated build variants demand from a given builder. When it is
+	// MissingRequiredProperties<...>, the compile error reads
+	// "... is not assignable to method's 'this' of type 'MissingRequiredProperties<"name" | "role">'".
+	type BuildThis<B> = BuildableThis<B, InternalBuilderBrand<User>>;
+
+	it("names exactly the required properties that are not set", () => {
+		const nothing = UserBuilder.create();
+		const idOnly = UserBuilder.create().id("1");
+		const complete = UserBuilder.create().id("1").name("n").role("r");
+
+		expectTypeOf<BuildThis<typeof nothing>>().toEqualTypeOf<MissingRequiredProperties<"id" | "name" | "role">>();
+		expectTypeOf<BuildThis<typeof idOnly>>().toEqualTypeOf<MissingRequiredProperties<"name" | "role">>();
+		expectTypeOf<BuildThis<typeof complete>>().toEqualTypeOf<typeof complete>();
+		expect(complete.build()).toEqual({ id: "1", name: "n", role: "r" });
+	});
+
+	it("keeps build() working on `this` inside a builder's own method", () => {
+		class DefaultUserBuilder extends CeriosAutoBuilder<User>() {
+			static create(): DefaultUserBuilder {
+				return new DefaultUserBuilder({});
+			}
+
+			buildDefault(): User {
+				return this.id("1").name("Default").role("user").build();
+			}
+		}
+
+		expect(DefaultUserBuilder.create().buildDefault()).toEqual({ id: "1", name: "Default", role: "user" });
+	});
+
+	it("keeps build() working in a generic helper", () => {
+		function finish<B extends UserBuilder>(builder: B & InternalBuilderBrand<User>): User {
+			return builder.build();
+		}
+
+		expect(finish(UserBuilder.create().id("1").name("n").role("r"))).toEqual({ id: "1", name: "n", role: "r" });
+	});
+
+	it("keeps build() overridable and its return type readable", () => {
+		class LoggingUserBuilder extends CeriosAutoBuilder<User>() {
+			static create(): LoggingUserBuilder {
+				return new LoggingUserBuilder({});
+			}
+
+			override build(): User {
+				return { ...this.buildUnsafe(), name: "overridden" };
+			}
+		}
+
+		expectTypeOf<ReturnType<UserBuilder["build"]>>().toEqualTypeOf<User>();
+		expect(LoggingUserBuilder.create().id("1").build().name).toBe("overridden");
+	});
+});
+
+describe("CeriosAutoBuilder - generated setter shape", () => {
+	it("gives optional properties a callable setter", () => {
+		type Setters = AutoSetters<{ required: string; optional?: number; readonly fixed: string }>;
+
+		expectTypeOf<keyof Setters>().toEqualTypeOf<"required" | "optional" | "fixed">();
+		expectTypeOf<Parameters<Setters["optional"]>[0]>().toEqualTypeOf<number | undefined>();
+		expectTypeOf<Parameters<Setters["fixed"]>[0]>().toEqualTypeOf<string>();
+	});
+
+	it("keeps reserved and non-identifier names unchanged", () => {
+		expectTypeOf<keyof AutoSetters<User>>().toEqualTypeOf<
+			"id" | "name" | "role" | "age" | "buildProp" | "content-type"
+		>();
+	});
+
+	it("generates no setter for numeric or symbol keys", () => {
+		const tag = Symbol("tag");
+		type Odd = { 0: string; [tag]: string; label: string };
+
+		expectTypeOf<keyof AutoSetters<Odd>>().toEqualTypeOf<"label">();
+	});
+
+	it("supports a union target, with setters for the common keys", () => {
+		type Shape = { kind: "circle"; radius: number } | { kind: "square"; side: number };
+
+		class ShapeBuilder extends CeriosAutoBuilder<Shape>() {
+			static create(): ShapeBuilder {
+				return new ShapeBuilder({});
+			}
+		}
+
+		expectTypeOf<keyof AutoSetters<Shape>>().toEqualTypeOf<"kind">();
+		expect(ShapeBuilder.create().kind("circle").buildPartial()).toEqual({ kind: "circle" });
 	});
 });

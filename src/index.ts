@@ -9,6 +9,7 @@ export type {
 	BuilderWith,
 	CeriosBrand,
 	InternalBuilderBrand,
+	InternalBuilderStep,
 	Path,
 	RequiredFieldsTemplate,
 } from "./cerios-builder.js";
@@ -36,11 +37,14 @@ export type {
 	ClassPath,
 	DataPropertiesOnly,
 	InternalClassBrand,
+	InternalClassBuilderStep,
 } from "./cerios-class-builder.js";
 export type {
 	BuilderType,
 	DeepReadonly,
+	MissingRequiredProperties,
 	OptionalKeys,
+	RemovedRequiredProperties,
 	RequiredFieldsRecord,
 	RequiredKeys,
 	WritableKeys,

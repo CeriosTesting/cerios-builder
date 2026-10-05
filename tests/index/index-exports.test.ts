@@ -8,7 +8,9 @@ import type {
 	ClassAutoBuilderApi,
 	DataPropertiesOnly,
 	InternalBuilderBrand,
+	InternalBuilderStep,
 	InternalClassBrand,
+	InternalClassBuilderStep,
 	Path,
 	RequiredFieldsRecord,
 	RequiredKeys,
@@ -30,6 +32,10 @@ class Person {
 	}
 }
 
+class UserBuilder extends api.CeriosAutoBuilder<User>() {}
+
+class PersonBuilder extends api.CeriosClassAutoBuilder(Person) {}
+
 // The barrel is the package's only entry point. A type used in a public signature but
 // missing here cannot be named by consumers, even though it appears in their editor.
 describe("public export surface", () => {
@@ -44,8 +50,9 @@ describe("public export surface", () => {
 	});
 
 	it("exports the brands used in every gated build signature", () => {
-		// These appear in `from`'s return type and in each `this:` parameter, so consumers
-		// need them to write helper functions that return an already-complete builder.
+		// These appear in `from`'s return type and decide what the gated build variants
+		// accept, so consumers need them to write helper functions that return an
+		// already-complete builder.
 		expectTypeOf<InternalBuilderBrand<User>>().toEqualTypeOf<api.CeriosBrand<User>>();
 		expectTypeOf<InternalClassBrand<DataPropertiesOnly<Person>>>().toEqualTypeOf<
 			CeriosClassBrand<DataPropertiesOnly<Person>>
@@ -92,5 +99,39 @@ describe("public export surface", () => {
 
 	it("exports DataPropertiesOnly, which every class-builder signature is expressed in", () => {
 		expectTypeOf<keyof DataPropertiesOnly<Person>>().toEqualTypeOf<"name">();
+	});
+
+	it("exports the types that appear in the build error and in removeRequiredProperty", () => {
+		// MissingRequiredProperties is what the compile error names; RemovedRequiredProperties
+		// is part of removeRequiredProperty's return type.
+		expectTypeOf<api.MissingRequiredProperties<"name">>().not.toBeNever();
+		expectTypeOf<ReturnType<AutoBuilderApi<User>["removeRequiredProperty"]>>().toMatchTypeOf<
+			api.RemovedRequiredProperties<"id" | "name">
+		>();
+	});
+
+	it("exports the type every generated setter returns", () => {
+		// It is what hovers and the too-early build() error name, so consumers' declaration
+		// emit must be able to reference it.
+		expectTypeOf(new UserBuilder().name("Alice")).toEqualTypeOf<InternalBuilderStep<UserBuilder, User, "name">>();
+		expectTypeOf(new PersonBuilder().name("Alice")).toEqualTypeOf<
+			InternalClassBuilderStep<PersonBuilder, Person, "name">
+		>();
+	});
+
+	it("keeps the deprecated helper aliases exported and equal to their replacements", () => {
+		expectTypeOf<api.BuilderStep<UserBuilder, User, "name">>().toEqualTypeOf<
+			InternalBuilderStep<UserBuilder, User, "name">
+		>();
+		expectTypeOf<api.BuilderPreset<UserBuilder, User, "name">>().toEqualTypeOf<
+			InternalBuilderStep<UserBuilder, User, "name">
+		>();
+		expectTypeOf<api.ClassBuilderStep<PersonBuilder, Person, "name">>().toEqualTypeOf<
+			InternalClassBuilderStep<PersonBuilder, Person, "name">
+		>();
+		expectTypeOf<api.ClassBuilderPreset<PersonBuilder, Person, "name">>().toEqualTypeOf<
+			InternalClassBuilderStep<PersonBuilder, Person, "name">
+		>();
+		expectTypeOf<api.RequiredFieldsTemplate<User>>().toEqualTypeOf<ReadonlyArray<Path<User>>>();
 	});
 });

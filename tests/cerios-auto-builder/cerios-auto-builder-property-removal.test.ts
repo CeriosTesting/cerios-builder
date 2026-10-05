@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
+import { BuildableThis } from "../../src/auto-builder-core";
 import { CeriosAutoBuilder } from "../../src/cerios-auto-builder";
+import { InternalBuilderBrand } from "../../src/cerios-builder";
+import { MissingRequiredProperties } from "../../src/types";
 
 type Person = {
 	name: string;
@@ -48,6 +51,91 @@ describe("CeriosAutoBuilder - removeOptionalProperty", () => {
 			.removeOptionalProperty("email");
 
 		expect(() => builder.buildWithoutCompileTimeValidation()).toThrow("Missing required fields: age");
+	});
+});
+
+describe("CeriosAutoBuilder - removeRequiredProperty", () => {
+	// The `this` type the validated build variants demand from a given builder.
+	type BuildThis<B> = BuildableThis<B, InternalBuilderBrand<Person>>;
+
+	// Builders are immutable, so every test can fork from the same complete builder.
+	const complete = PersonBuilder.create().name("John").age(30).email("j@x.io");
+
+	it("drops a previously set required property", () => {
+		const builder = complete.removeRequiredProperty("name");
+
+		expect(builder.buildPartial()).toEqual({ age: 30, email: "j@x.io" });
+		expect(builder.buildUnsafe()).toEqual({ age: 30, email: "j@x.io" });
+	});
+
+	it("returns a new builder, leaving the original intact and buildable", () => {
+		const original = complete;
+		const without = original.removeRequiredProperty("name");
+
+		expect(without.buildPartial().name).toBeUndefined();
+		expect(original.build()).toEqual({ name: "John", age: 30, email: "j@x.io" });
+	});
+
+	it("blocks every compile-time-validated build variant", () => {
+		const without = complete.removeRequiredProperty("name");
+
+		expect(() => {
+			// @ts-expect-error - name was removed
+			without.build();
+			// @ts-expect-error - name was removed
+			without.buildWithoutRuntimeValidation();
+			// @ts-expect-error - name was removed
+			without.buildFrozen();
+			// @ts-expect-error - name was removed
+			without.buildDeepFrozen();
+			// @ts-expect-error - name was removed
+			without.buildSealed();
+			// @ts-expect-error - name was removed
+			without.buildDeepSealed();
+		}).not.toThrow(); // no runtime required fields are configured on this builder
+	});
+
+	it("names the removed properties in the build error", () => {
+		const one = complete.removeRequiredProperty("name");
+		const two = complete.removeRequiredProperty("name").removeRequiredProperty("age");
+
+		expectTypeOf<BuildThis<typeof one>>().toEqualTypeOf<MissingRequiredProperties<"name">>();
+		expectTypeOf<BuildThis<typeof two>>().toEqualTypeOf<MissingRequiredProperties<"name" | "age">>();
+		expect(two.buildPartial()).toEqual({ email: "j@x.io" });
+	});
+
+	it("keeps the removal on the builder even if the property is set again; fork from earlier instead", () => {
+		const original = complete;
+		const reSet = original.removeRequiredProperty("name").name("Jane");
+
+		// @ts-expect-error - the compile-time tracking cannot forget a removal
+		reSet.build();
+		expect(reSet.buildUnsafe().name).toBe("Jane");
+
+		// Builders are immutable: the builder from before the removal still builds.
+		expect(original.name("Jane").build().name).toBe("Jane");
+	});
+
+	it("only accepts required keys", () => {
+		// @ts-expect-error - email is optional; use removeOptionalProperty
+		complete.removeRequiredProperty("email");
+		// @ts-expect-error - name is required; use removeRequiredProperty
+		complete.removeOptionalProperty("name");
+
+		expect(complete.removeOptionalProperty("email").build().email).toBeUndefined();
+	});
+
+	it("keeps validators, required fields, and the removal across clone()", () => {
+		const builder = PersonBuilder.create()
+			.setRequiredFields(["name", "age"])
+			.name("John")
+			.age(30)
+			.removeRequiredProperty("name")
+			.clone();
+
+		// @ts-expect-error - clone() carries the removal
+		expect(() => builder.build()).toThrow("Missing required fields: name");
+		expect(() => builder.buildWithoutCompileTimeValidation()).toThrow("Missing required fields: name");
 	});
 });
 

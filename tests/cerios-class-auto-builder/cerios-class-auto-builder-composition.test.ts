@@ -71,6 +71,12 @@ class TeamBuilder extends CeriosClassAutoBuilder(Team) {
 		return this.title("squad");
 	}
 
+	// The three-argument form: properties are looked up on TeamBuilder (so they autocomplete),
+	// and `this` keeps everything set earlier in the chain.
+	asGuild(): ClassBuilderWith<this, "title", TeamBuilder> {
+		return this.title("guild");
+	}
+
 	withLead(fn: ClassBuilderComposerFromFactory<typeof PersonBuilder.create>): ClassBuilderWith<this, "lead"> {
 		return this.lead(fn(PersonBuilder.create()).build());
 	}
@@ -102,6 +108,19 @@ describe("CeriosClassAutoBuilder - nested builder composition", () => {
 		expect(team.lead.greet()).toBe("Hi, Alice");
 		expect(team.summary()).toBe("squad led by Alice");
 		expect(team.lead.describe("Lead:")).toBe("Lead: Alice (30)");
+	});
+
+	it("keeps the chain buildable through ClassBuilderWith<this, Keys, Builder>", () => {
+		const team = TeamBuilder.create()
+			.withLead((b) => b.name("Alice").age(30).city("Rotterdam"))
+			.asGuild()
+			.build();
+		expect(team.summary()).toBe("guild led by Alice");
+
+		expectTypeOf(TeamBuilder.create().asGuild()).toEqualTypeOf(TeamBuilder.create().asSquad());
+
+		// @ts-expect-error - title is set, but lead is not
+		TeamBuilder.create().asGuild().build();
 	});
 
 	it("treats data properties preset by the factory as already set", () => {

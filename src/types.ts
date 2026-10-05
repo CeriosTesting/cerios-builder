@@ -50,6 +50,88 @@ export interface BuilderTargetMarker<T> {
 export type TargetOfMarker<B extends BuilderTargetMarker<object>> = B[typeof __target] & {};
 
 /**
+ * Unique symbol keying the phantom "removed required properties" marker.
+ * @internal
+ */
+declare const __removed: unique symbol;
+
+/**
+ * Unique symbols branding the two members of {@link MissingRequiredProperties}.
+ * @internal
+ */
+declare const __missingRequiredProperties: unique symbol;
+declare const __unbuildable: unique symbol;
+
+/**
+ * Phantom marker added by `removeRequiredProperty(key)`, recording which required
+ * properties were removed. A builder carrying it cannot use the compile-time-validated
+ * build variants until it is rebuilt from a builder that still has the property.
+ *
+ * The removed keys are carried as object keys rather than as a union, so removing two
+ * properties in a row (an intersection of two markers) keeps both keys instead of
+ * collapsing to `never`.
+ *
+ * Never present at runtime - the property is declared optional and never assigned.
+ *
+ * @template K - The removed required property keys
+ */
+export interface RemovedRequiredProperties<K extends PropertyKey> {
+	readonly [__removed]?: { readonly [P in K]: true };
+}
+
+/**
+ * Satisfied only by builders that never removed a required property.
+ * @internal
+ */
+export interface NoRemovedRequiredProperties {
+	readonly [__removed]?: never;
+}
+
+/**
+ * The required property keys removed from a builder via `removeRequiredProperty`.
+ * @internal
+ */
+export type RemovedKeysOf<B> = [B] extends [{ readonly [__removed]?: infer R }] ? keyof (R & {}) : never;
+
+/**
+ * The `this` type a validated build variant (`build()`, `buildFrozen()`, ...) demands while
+ * required properties are still missing. It surfaces in the compile error:
+ *
+ * ```text
+ * The 'this' context of type 'UserBuilder & ...' is not assignable to method's 'this' of
+ * type 'MissingRequiredProperties<"name" | "role">'.
+ * ```
+ *
+ * To fix it, set the listed properties before building. If a property is listed because
+ * `removeRequiredProperty` removed it, build from an earlier builder instead (builders are
+ * immutable, so the one before the removal is unaffected), or use `buildUnsafe()` /
+ * `buildPartial()` when the incomplete object is intended - for example in a negative test.
+ *
+ * Deliberately a union of two branded copies of the keys rather than an object type: no
+ * builder can ever be assignable to it, and TypeScript then reports the error in a single
+ * line. An object type adds a "Property ... is missing" line that repeats the whole builder
+ * type, and a single branded key adds a "... is not assignable to type '"name"'" line; a union
+ * target is not elaborated, so the second brand keeps it a union even for one key.
+ *
+ * @template K - The required property keys that are not set yet
+ */
+export type MissingRequiredProperties<K extends PropertyKey> =
+	| (K & { readonly [__missingRequiredProperties]: never })
+	| (K & { readonly [__unbuildable]: never });
+
+/**
+ * Keys whose `?` modifier is absent, i.e. the keys brand assignability demands.
+ *
+ * Differs from {@link RequiredKeys} for a required property whose type includes `undefined`
+ * (`a: string | undefined`): `RequiredKeys` excludes it, while the build gate still demands it.
+ * @internal
+ */
+export type DemandedKeys<T> = {
+	// oxlint-disable-next-line typescript/no-empty-object-type -- `{}` is the probe for an optional key, not a value type
+	[K in keyof T]-?: {} extends Pick<T, K> ? never : K;
+}[keyof T];
+
+/**
  * Helper type to extract optional keys from a type.
  * Returns keys where the property can be undefined.
  *

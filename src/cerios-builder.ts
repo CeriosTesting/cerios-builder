@@ -1,5 +1,6 @@
 // oxlint-disable typescript/no-deprecated
 import {
+	BuildableThis,
 	assertSafeKey,
 	assertSafePath,
 	deepClone,
@@ -11,6 +12,9 @@ import { CeriosBuilderError, runValidatorsAgainst } from "./builder-error";
 import {
 	BuilderTargetMarker,
 	DeepReadonly,
+	NoRemovedRequiredProperties,
+	OptionalKeys,
+	RemovedRequiredProperties,
 	RequiredFieldsRecord,
 	RequiredKeys,
 	TargetOfMarker,
@@ -26,7 +30,7 @@ declare const __brand: unique symbol;
 
 /**
  * Internal brand for builder type-state tracking.
- * Prefer helper aliases like `BuilderStep` in public APIs.
+ * Prefer `BuilderWith` in public APIs.
  * @internal
  */
 export type InternalBuilderBrand<T> = { [__brand]: T };
@@ -35,7 +39,7 @@ export type InternalBuilderBrand<T> = { [__brand]: T };
  * Type utility for branding builder types with information about which properties have been set.
  * This is used to enforce compile-time safety for required fields in the builder pattern.
  *
- * @deprecated Prefer `BuilderStep`, `BuilderPreset`, `BuilderComposer`, or `BuilderComposerFromFactory` in user-facing APIs.
+ * @deprecated Prefer `BuilderWith` or `BuilderComposerFromFactory` in user-facing APIs.
  * This type remains exported for backward compatibility.
  *
  * @template T - The type representing the set of properties that have been set
@@ -44,16 +48,27 @@ export type InternalBuilderBrand<T> = { [__brand]: T };
 export type CeriosBrand<T> = InternalBuilderBrand<T>;
 
 /**
- * The `this` constraint gating the compile-time-validated build variants.
+ * The condition a builder must meet to use the compile-time-validated build variants.
  *
  * Normally the accumulated {@link InternalBuilderBrand} must cover every required key of T.
  * When T has no required keys there is nothing to track, so the gate dissolves to `unknown`
  * and `build()` is callable on a fresh builder — an all-optional type no longer needs a
- * throwaway setter call (or a `buildUnsafe()` fallback) before it can build.
+ * throwaway setter call (or a `buildUnsafe()` fallback) before it can build. A builder that
+ * had a required property removed via `removeRequiredProperty` never passes the gate.
+ *
+ * The build variants themselves check the same condition through their `this` parameter,
+ * which on failure resolves to `MissingRequiredProperties<...>` so the compile error names the
+ * missing properties. This alias remains for code that states the condition in its own types.
+ *
+ * @deprecated Prefer `BuilderWith<YourBuilder>` to type a fully buildable builder; a too-early
+ * `build()` names what is missing through `MissingRequiredProperties`.
+ * This type remains exported for backward compatibility.
  *
  * @template T - The type being built
  */
-export type BuildGate<T> = [RequiredKeys<T>] extends [never] ? unknown : InternalBuilderBrand<T>;
+export type BuildGate<T> = [RequiredKeys<T>] extends [never]
+	? unknown
+	: InternalBuilderBrand<T> & NoRemovedRequiredProperties;
 
 type RootFromPath<P extends string> = P extends `${infer K}.${string}` ? K : P;
 
@@ -62,24 +77,40 @@ type StepKey<T extends object, S extends keyof T | Path<T>> = S extends keyof T
 	: Extract<RootFromPath<S & string>, keyof T>;
 
 /**
+ * The builder type a setter returns: builder `B` with the root property of `S` recorded as set.
+ * Every generated auto-builder setter returns this, so it shows up in hovers and in the
+ * too-early `build()` error. Don't write it yourself - annotate your own methods with
+ * `BuilderWith`. Supports both root keys ("name") and dot-notation paths ("address.street").
+ *
+ * @template B - The current builder instance type (usually `this`)
+ * @template T - The target object type being built
+ * @template S - A root key or path in T
+ * @internal
+ */
+export type InternalBuilderStep<B, T extends object, S extends keyof T | Path<T>> = B &
+	InternalBuilderBrand<Pick<T, StepKey<T, S>>>;
+
+/**
  * Helper type for fluent builder methods that set one root property.
- * This keeps method signatures short while preserving compile-time field tracking.
  * Supports both root keys ("name") and dot-notation paths ("address.street").
+ *
+ * @deprecated Prefer `BuilderWith<this, "key", YourBuilder>`: the built type is derived from the
+ * builder, so you only name the builder and the keys the method sets.
+ * This type remains exported for backward compatibility.
  *
  * @template B - The current builder instance type (usually `this`)
  * @template T - The target object type being built
  * @template S - A root key or path in T
  */
-export type BuilderStep<B, T extends object, S extends keyof T | Path<T>> = B &
-	InternalBuilderBrand<Pick<T, StepKey<T, S>>>;
+export type BuilderStep<B, T extends object, S extends keyof T | Path<T>> = InternalBuilderStep<B, T, S>;
 
 /**
  * Brands T's writable state one key at a time and intersects the results, matching the shape
- * that chaining single-key `BuilderStep` applications actually produces - rather than one
+ * that chaining single-key `InternalBuilderStep` applications actually produces - rather than one
  * `Pick` over the whole key union. The two are structurally equivalent for concrete types, but
  * not always provably assignable to each other when compared against an unresolved polymorphic
  * `this`, which is what `BuilderWith` is typically instantiated with. Used by `BuilderWith`
- * only - `BuilderStep` keeps the plain single-`Pick` formula above, since user code overrides
+ * only - `InternalBuilderStep` keeps the plain single-`Pick` formula above, since code overrides
  * it with a still-generic key parameter (`BuilderStep<this, T, K>`) far more often than with an
  * explicit key union, and the plain formula is the one that stays comparable against a
  * deferred `K`.
@@ -94,11 +125,15 @@ type BuilderWithBrand<T extends object, K extends keyof T> = [K] extends [never]
  * Useful for methods like `createWithDefaults()` where you want an explicit return type
  * without losing compile-time tracking of which fields are already set.
  *
+ * @deprecated Prefer `BuilderWith<YourBuilder, "key">` (or `BuilderWith<YourBuilder>` when every
+ * key is set): the built type is derived from the builder, so you never repeat it.
+ * This type remains exported for backward compatibility.
+ *
  * @template B - The builder instance type
  * @template T - The target object type being built
  * @template S - A root key or path (or union) already configured by the factory
  */
-export type BuilderPreset<B, T extends object, S extends keyof T | Path<T>> = BuilderStep<B, T, S>;
+export type BuilderPreset<B, T extends object, S extends keyof T | Path<T>> = InternalBuilderStep<B, T, S>;
 
 /**
  * Helper type for callback-based builder composition APIs.
@@ -110,13 +145,17 @@ export type BuilderPreset<B, T extends object, S extends keyof T | Path<T>> = Bu
  * Output builder:
  * - Callback must return a fully buildable state for `T`.
  *
+ * @deprecated Prefer `BuilderComposerFromFactory<typeof YourBuilder.createWithDefaults>`, which
+ * infers both the callback input and the fully buildable output from a factory.
+ * This type remains exported for backward compatibility.
+ *
  * @template B - The builder instance type
  * @template T - The target object type being built
  * @template Preset - Optional preset key/path union already configured before callback execution
  */
 export type BuilderComposer<B, T extends object, Preset extends keyof T | Path<T> = never> = (
-	builder: [Preset] extends [never] ? B : BuilderPreset<B, T, Preset>,
-) => BuilderPreset<B, T, keyof T>;
+	builder: [Preset] extends [never] ? B : InternalBuilderStep<B, T, Preset>,
+) => InternalBuilderStep<B, T, keyof T>;
 
 /**
  * Extracts the target type built by any builder type.
@@ -139,11 +178,18 @@ type BuilderTargetOf<B> =
  *
  * Works for both hand-written `CeriosBuilder` subclasses and `CeriosAutoBuilder` subclasses.
  *
- * Use root keys only. A method that sets a nested path brands the *root* key, so a
- * method calling `setNestedProperty("meta.note", ...)` returns `BuilderWith<this, "meta">`.
+ * Use root keys only. A method that changes a nested value sets its *root* property, so a
+ * method updating `meta.note` through `this.meta({ ... })` returns `BuilderWith<this, "meta">`.
  *
- * @template B - The builder type (a concrete builder class, or `this` inside a method)
+ * In an instance method, add the builder class as a third argument -
+ * `BuilderWith<this, "city", AddressBuilder>`. `BuilderWith<this, "city">` describes the same
+ * type, but editors cannot list property names for `this`; the class is where they look them
+ * up instead, so the keys autocomplete inside the quotes.
+ *
+ * @template B - The builder type returned (a concrete builder class, or `this` inside a method)
  * @template S - The keys this method sets. Omit to mean "every key" (fully buildable).
+ * @template KeysFrom - The builder class whose properties `S` is checked against and suggested
+ * from. Defaults to `B`; pass the class when `B` is `this`, which `B` must extend.
  *
  * @example
  * ```typescript
@@ -154,14 +200,15 @@ type BuilderTargetOf<B> =
  *   }
  *   static createComplete(): BuilderWith<AddressBuilder> { ... }
  *
- *   inRotterdam(): BuilderWith<this, "city"> { return this.city("Rotterdam"); }
+ *   inRotterdam(): BuilderWith<this, "city", AddressBuilder> { return this.city("Rotterdam"); }
  * }
  * ```
  */
 export type BuilderWith<
-	B extends BuilderTargetMarker<object>,
-	S extends keyof TargetOfMarker<B> = keyof TargetOfMarker<B>,
-> = B & BuilderWithBrand<TargetOfMarker<B>, S>;
+	B extends KeysFrom,
+	S extends keyof TargetOfMarker<KeysFrom> = keyof TargetOfMarker<B>,
+	KeysFrom extends BuilderTargetMarker<object> = B,
+> = B & BuilderWithBrand<TargetOfMarker<KeysFrom>, S>;
 
 type BuilderBaseFromFactoryReturn<R> = R extends (infer B) & InternalBuilderBrand<unknown> ? B : R;
 
@@ -178,7 +225,7 @@ type BuilderTargetFromFactoryReturn<R> = BuilderTargetOf<BuilderBaseFromFactoryR
  */
 export type BuilderComposerFromFactory<F extends (...args: never[]) => unknown> = (
 	builder: ReturnType<F>,
-) => BuilderPreset<
+) => InternalBuilderStep<
 	BuilderBaseFromFactoryReturn<ReturnType<F>>,
 	BuilderTargetFromFactoryReturn<ReturnType<F>>,
 	keyof BuilderTargetFromFactoryReturn<ReturnType<F>>
@@ -212,6 +259,11 @@ export type PathValue<T, P> = P extends keyof T
 /**
  * Type-safe template for defining required fields using an array of paths.
  * Simply list the paths that are required.
+ *
+ * @deprecated Pass required fields through the constructor options (`BuilderInit`) or
+ * `setRequiredFields()`, typed as `RequiredFieldsRecord<T>` (preferred), or as
+ * `ReadonlyArray<Path<T>>` for nested dot-notation paths.
+ * This type remains exported for backward compatibility.
  */
 export type RequiredFieldsTemplate<T> = ReadonlyArray<Path<T>>;
 
@@ -403,7 +455,35 @@ export abstract class CeriosBuilder<T extends object> {
 	 * // Email is now removed from the builder
 	 * ```
 	 */
-	removeOptionalProperty<K extends import("./types").OptionalKeys<T>>(key: K): this {
+	removeOptionalProperty<K extends OptionalKeys<T>>(key: K): this {
+		const newData = { ...this._actual };
+		delete newData[key];
+		return this.instantiateBuilder(newData, this._requiredFields, this._validators);
+	}
+
+	/**
+	 * Removes a required property from the builder - typically to produce an invalid object
+	 * for a negative test. For an optional property, use `removeOptionalProperty`.
+	 *
+	 * The returned builder can no longer use the compile-time-validated build variants
+	 * (`build()`, `buildFrozen()`, ...); use `buildUnsafe()` or `buildPartial()` instead.
+	 * Setting the property again on the returned builder does not lift that restriction -
+	 * build from the builder you had before the removal instead.
+	 *
+	 * @template K - The required property key to remove
+	 * @param key - The property key to remove
+	 * @returns A new builder instance without the specified property
+	 *
+	 * @example
+	 * ```typescript
+	 * const withoutName = new MyBuilder({})
+	 *   .setName('John')
+	 *   .setAge(30)
+	 *   .removeRequiredProperty('name')
+	 *   .buildUnsafe();
+	 * ```
+	 */
+	removeRequiredProperty<K extends RequiredKeys<T>>(key: K): this & RemovedRequiredProperties<K> {
 		const newData = { ...this._actual };
 		delete newData[key];
 		return this.instantiateBuilder(newData, this._requiredFields, this._validators);
@@ -464,7 +544,7 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @returns A new builder instance with the property set and type state updated
 	 * @protected
 	 */
-	protected setProperty<K extends keyof T>(key: K, value: T[K]): BuilderStep<this, T, K> {
+	protected setProperty<K extends keyof T>(key: K, value: T[K]): InternalBuilderStep<this, T, K> {
 		assertSafeKey(key);
 		return this.instantiateBuilder(
 			{
@@ -473,7 +553,7 @@ export abstract class CeriosBuilder<T extends object> {
 			},
 			this._requiredFields,
 			this._validators,
-		) as BuilderStep<this, T, K>;
+		) as InternalBuilderStep<this, T, K>;
 	}
 
 	/**
@@ -482,7 +562,7 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @returns A new builder instance with the properties set and type state updated.
 	 * @protected
 	 */
-	protected setProperties<K extends keyof T>(props: Pick<T, K>): BuilderStep<this, T, K> {
+	protected setProperties<K extends keyof T>(props: Pick<T, K>): InternalBuilderStep<this, T, K> {
 		Object.keys(props).forEach(assertSafeKey);
 		return this.instantiateBuilder(
 			{
@@ -491,7 +571,7 @@ export abstract class CeriosBuilder<T extends object> {
 			},
 			this._requiredFields,
 			this._validators,
-		) as BuilderStep<this, T, K>;
+		) as InternalBuilderStep<this, T, K>;
 	}
 
 	/**
@@ -509,7 +589,7 @@ export abstract class CeriosBuilder<T extends object> {
 	 * builder.setNestedProperty('Order.Details.CustomerId', 'value')
 	 * ```
 	 */
-	protected setNestedProperty<P extends Path<T>>(path: P, value: PathValue<T, P>): BuilderStep<this, T, P> {
+	protected setNestedProperty<P extends Path<T>>(path: P, value: PathValue<T, P>): InternalBuilderStep<this, T, P> {
 		assertSafePath(path as string);
 		const keys = (path as string).split(".");
 		const newActual = deepClone(this._actual);
@@ -528,7 +608,11 @@ export abstract class CeriosBuilder<T extends object> {
 
 		current[keys[keys.length - 1]] = value;
 
-		return this.instantiateBuilder(newActual, this._requiredFields, this._validators) as BuilderStep<this, T, P>;
+		return this.instantiateBuilder(newActual, this._requiredFields, this._validators) as InternalBuilderStep<
+			this,
+			T,
+			P
+		>;
 	}
 
 	/**
@@ -545,7 +629,7 @@ export abstract class CeriosBuilder<T extends object> {
 	protected addToArrayProperty<
 		K extends { [P in keyof T]: NonNullable<T[P]> extends Array<unknown> ? P : never }[keyof T],
 		V extends (T[K] extends Array<infer U> ? U : T[K] extends Array<infer U> | undefined ? U : never),
-	>(key: K, value: V): BuilderStep<this, T, K> {
+	>(key: K, value: V): InternalBuilderStep<this, T, K> {
 		assertSafeKey(key);
 		const currentArray = (this._actual[key] as Array<V> | undefined) ?? [];
 		return this.instantiateBuilder(
@@ -555,7 +639,7 @@ export abstract class CeriosBuilder<T extends object> {
 			},
 			this._requiredFields,
 			this._validators,
-		) as BuilderStep<this, T, K>;
+		) as InternalBuilderStep<this, T, K>;
 	}
 
 	/**
@@ -568,10 +652,11 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @returns The fully built object of type T
 	 * @throws {Error} If any required field is missing at runtime
 	 */
-	build(this: this & BuildGate<T>): T {
-		this.assertValid("build");
+	build<Self>(this: BuildableThis<Self, InternalBuilderBrand<T>>): T {
+		const builder = asBuilder<T>(this);
+		builder.assertValid("build");
 
-		return this.snapshot();
+		return builder.snapshot();
 	}
 
 	/**
@@ -583,8 +668,8 @@ export abstract class CeriosBuilder<T extends object> {
 	 *
 	 * @returns The fully built object of type T
 	 */
-	buildWithoutRuntimeValidation(this: this & BuildGate<T>): T {
-		return this.snapshot();
+	buildWithoutRuntimeValidation<Self>(this: BuildableThis<Self, InternalBuilderBrand<T>>): T {
+		return asBuilder<T>(this).snapshot();
 	}
 
 	/**
@@ -758,10 +843,11 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @returns The frozen object of type Readonly<T>
 	 * @throws {Error} If any required field is missing at runtime
 	 */
-	buildFrozen(this: this & BuildGate<T>): Readonly<T> {
-		this.assertValid("buildFrozen");
+	buildFrozen<Self>(this: BuildableThis<Self, InternalBuilderBrand<T>>): Readonly<T> {
+		const builder = asBuilder<T>(this);
+		builder.assertValid("buildFrozen");
 
-		return Object.freeze(this.snapshot());
+		return Object.freeze(builder.snapshot());
 	}
 
 	/**
@@ -774,10 +860,11 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @returns The deeply frozen object of type DeepReadonly<T>
 	 * @throws {Error} If any required field is missing at runtime
 	 */
-	buildDeepFrozen(this: this & BuildGate<T>): DeepReadonly<T> {
-		this.assertValid("buildDeepFrozen");
+	buildDeepFrozen<Self>(this: BuildableThis<Self, InternalBuilderBrand<T>>): DeepReadonly<T> {
+		const builder = asBuilder<T>(this);
+		builder.assertValid("buildDeepFrozen");
 
-		return deepHarden(this.snapshot(), "freeze") as DeepReadonly<T>;
+		return deepHarden(builder.snapshot(), "freeze") as DeepReadonly<T>;
 	}
 
 	/**
@@ -791,10 +878,11 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @returns The sealed object of type T
 	 * @throws {Error} If any required field is missing at runtime
 	 */
-	buildSealed(this: this & BuildGate<T>): T {
-		this.assertValid("buildSealed");
+	buildSealed<Self>(this: BuildableThis<Self, InternalBuilderBrand<T>>): T {
+		const builder = asBuilder<T>(this);
+		builder.assertValid("buildSealed");
 
-		return Object.seal(this.snapshot());
+		return Object.seal(builder.snapshot());
 	}
 
 	/**
@@ -808,9 +896,24 @@ export abstract class CeriosBuilder<T extends object> {
 	 * @returns The deeply sealed object of type T
 	 * @throws {Error} If any required field is missing at runtime
 	 */
-	buildDeepSealed(this: this & BuildGate<T>): T {
-		this.assertValid("buildDeepSealed");
+	buildDeepSealed<Self>(this: BuildableThis<Self, InternalBuilderBrand<T>>): T {
+		const builder = asBuilder<T>(this);
+		builder.assertValid("buildDeepSealed");
 
-		return deepHarden(this.snapshot(), "seal");
+		return deepHarden(builder.snapshot(), "seal");
 	}
+}
+
+/**
+ * Recovers the builder inside a validated build variant.
+ *
+ * Those variants type their `this` parameter as {@link BuildableThis} - the receiver when
+ * buildable, otherwise the error type - which hides the class members from the method body.
+ * The runtime value is always the builder itself. A module-level function rather than a
+ * method: every runtime member of the builder has to be reserved for the auto builders.
+ *
+ * @internal
+ */
+function asBuilder<T extends object>(receiver: unknown): CeriosBuilder<T> {
+	return receiver as CeriosBuilder<T>;
 }
