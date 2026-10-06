@@ -1,5 +1,63 @@
 # @cerios/cerios-builder
 
+## 1.8.0
+
+### Minor Changes
+
+- 84cb7b5: `BuilderWith` and `ClassBuilderWith` take an optional third type argument, the builder class, so property names autocomplete in instance methods:
+
+  ```typescript
+  inRotterdam(): BuilderWith<this, "city", AddressBuilder> {
+  	return this.city("Rotterdam");
+  }
+  ```
+
+  `this` keeps everything set earlier in the chain. The builder class is where the property names are looked up, and is the class `this` must extend. `BuilderWith<this, "city">` describes exactly the same type and keeps working, but editors cannot list property names for the generic `this`, so it offers no suggestions inside the quotes. An existing two-argument method only needs the class appended. The third argument defaults to the first, so existing uses are unaffected.
+
+  Inside a string literal, VS Code only suggests on the opening quote or Ctrl+Space by default. Set `"editor.quickSuggestions": { "strings": "on" }` to get suggestions while typing.
+
+- 84cb7b5: Calling `build()` (or `buildFrozen()`, `buildSealed()`, and the other compile-time-checked variants) before every required property is set now gives a short compile error that names the missing properties:
+
+  ```text
+  The 'this' context of type 'InternalBuilderStep<UserBuilder, User, "id">' is not assignable to method's 'this' of type 'MissingRequiredProperties<"name" | "role">'.
+  ```
+
+  Previously the error was a four-line chain that printed the builder's full brand type up to three times before reaching the missing names. The build variants now infer the receiver type and check it against the required brand themselves. When the check fails, the `this` type they demand is `MissingRequiredProperties<...>`, which no builder can satisfy, so the error stops there instead of elaborating on the builder type. This applies to the auto builders and to the deprecated `CeriosBuilder` / `CeriosClassBuilder`.
+
+  Nothing that compiled before stops compiling. That includes calling `build()` on `this` inside a builder's own method after setting every required property, generic helpers that accept a fully branded builder, overriding `build()` in a subclass, and `ReturnType<UserBuilder["build"]>`. `BuildGate` / `ClassBuildGate` are still exported and still describe the same condition. They are now deprecated in favour of `BuilderWith<YourBuilder>` / `ClassBuilderWith<YourBuilder>`. The new `MissingRequiredProperties` type is exported too.
+
+- 84cb7b5: Deprecate the helper types that the auto builders and `BuilderWith` made redundant. They are still exported and still work. Each `@deprecated` tag names its replacement, and MIGRATION.md has a before/after table:
+
+  | Deprecated                                 | Replacement                                                             |
+  | ------------------------------------------ | ----------------------------------------------------------------------- |
+  | `BuilderStep` / `ClassBuilderStep`         | `BuilderWith<this, "key", YourBuilder>` / `ClassBuilderWith`            |
+  | `BuilderPreset` / `ClassBuilderPreset`     | `BuilderWith<YourBuilder, "key">` / `ClassBuilderWith`                  |
+  | `BuilderComposer` / `ClassBuilderComposer` | `BuilderComposerFromFactory` / `ClassBuilderComposerFromFactory`        |
+  | `BuildGate` / `ClassBuildGate`             | `BuilderWith<YourBuilder>` / `ClassBuilderWith<YourBuilder>`            |
+  | `RequiredFieldsTemplate`                   | `RequiredFieldsRecord<T>`, or `ReadonlyArray<Path<T>>` for nested paths |
+
+  The generated setters used to be declared with `BuilderStep`. They now return the new `InternalBuilderStep` / `InternalClassBuilderStep`, which are exported, so hovers and the too-early `build()` error no longer name a deprecated type:
+
+  ```text
+  The 'this' context of type 'InternalBuilderStep<UserBuilder, User, "id">' is not assignable to method's 'this' of type 'MissingRequiredProperties<"name" | "role">'.
+  ```
+
+  It is the same type under a new name. You never need to write it yourself: annotate your own methods with `BuilderWith`. Nothing that compiled before stops compiling, and nothing changes at runtime. Only a project whose lint rule reports deprecated APIs will see a warning where it names one of these types.
+
+- 84cb7b5: Add `removeRequiredProperty(key)`, the counterpart of `removeOptionalProperty(key)`, on the auto builders and the deprecated builders. It accepts only required keys (and `removeOptionalProperty` only optional ones), and returns a new builder without that property. The main use is building an invalid object for a negative test:
+
+  ```typescript
+  const withoutName = UserBuilder.from(validUser).removeRequiredProperty("name").buildUnsafe();
+  ```
+
+  The returned builder can no longer use the compile-time-checked build variants: `build()` reports `MissingRequiredProperties<"name">`. Use `buildUnsafe()` or `buildPartial()` for the incomplete object, while `buildWithoutCompileTimeValidation()` still runs the runtime checks. Setting the property again on that same builder does not lift the restriction, because the compile-time tracking cannot forget a removal. Builders are immutable, so build from the builder you had before the removal instead. The marker type it adds, `RemovedRequiredProperties`, is exported.
+
+  `removeRequiredProperty` is now a reserved builder name: a property literally named `removeRequiredProperty` is set with `removeRequiredPropertyProp`, like every other property named after a builder member.
+
+- 84cb7b5: Auto-builder setters are now linked to the property they set. Ctrl+Click (Go to Definition) on `builder.city(...)` opens `city` in your type or class instead of the library's internal mapped type. Hovering a setter shows the property's own documentation comment, and renaming the property also renames the setter calls.
+
+  TypeScript only links a mapped member to its source property when the mapped type iterates `keyof` the source and its `as` clause filters keys rather than renaming them. The setters used to be generated from `keyof T & string` with an `as` clause that renamed reserved keys to `${key}Prop`, which broke both conditions. They are now generated by two maps: one that keeps every ordinary property under its own name, which is linked, and one for the rare reserved names, which keep their `Prop` suffix and are not linked. The setter names, parameter types and union-target behaviour are unchanged. The change also roughly halves the number of type instantiations when compiling the package's own test suite.
+
 ## 1.7.1
 
 ### Patch Changes
