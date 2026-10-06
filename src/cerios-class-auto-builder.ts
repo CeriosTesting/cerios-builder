@@ -2,7 +2,9 @@
 import {
 	BuilderInit,
 	CommonAutoBuilderApi,
-	SetterName,
+	DirectSetterKey,
+	NonDistributive,
+	ReservedSetterName,
 	assertBuilderInit,
 	autoSetterHandler,
 	createBuilderCopy,
@@ -11,14 +13,35 @@ import {
 } from "./auto-builder-core";
 import {
 	CeriosClassBuilder,
-	ClassBuildGate,
-	ClassBuilderStep,
 	ClassConstructor,
 	ClassPath,
 	DataPropertiesOnly,
 	InternalClassBrand,
+	InternalClassBuilderStep,
+	WritableDataProperties,
 } from "./cerios-class-builder";
 import { BuilderTargetMarker, WritableKeys } from "./types";
+
+/**
+ * The class setter maps for T, with each setter accepting `V[K]`. Only writable data
+ * properties get a setter.
+ *
+ * Built the same way as the object auto builder's setter maps - two maps over
+ * `keyof NonDistributive<T>`, one filtering and one renaming reserved keys - so Ctrl+Click on a setter
+ * opens the class field it sets and hovering it shows that field's JSDoc. See `SetterMaps`
+ * in `cerios-auto-builder.ts` for why each modifier is there.
+ *
+ * @internal
+ */
+type ClassSetterMaps<T extends object, V> = {
+	-readonly [K in keyof NonDistributive<T> as K extends WritableKeys<DataPropertiesOnly<T>>
+		? DirectSetterKey<K>
+		: never]-?: <Self>(this: Self, value: V[K & keyof V]) => InternalClassBuilderStep<Self, T, K & keyof T>;
+} & {
+	-readonly [K in keyof NonDistributive<T> as K extends WritableKeys<DataPropertiesOnly<T>>
+		? ReservedSetterName<K>
+		: never]-?: <Self>(this: Self, value: V[K & keyof V]) => InternalClassBuilderStep<Self, T, K & keyof T>;
+};
 
 /**
  * Automatic setter methods for class data properties: one bare `<propertyName>`
@@ -33,16 +56,12 @@ import { BuilderTargetMarker, WritableKeys } from "./types";
  *
  * Property names that collide with a builder method (e.g. `build`) get a `Prop`
  * suffix; keys that aren't valid identifiers are set with bracket access.
- * Each setter returns a {@link ClassBuilderStep} so brand tracking accumulates.
+ * Each setter returns a {@link InternalClassBuilderStep} so brand tracking accumulates.
+ * Ctrl+Click on a setter opens the class field it sets.
  *
  * @template T - The class type being built
  */
-export type ClassAutoSetters<T extends object> = {
-	[K in WritableKeys<DataPropertiesOnly<T>> & string as SetterName<K>]: <Self>(
-		this: Self,
-		value: DataPropertiesOnly<T>[K],
-	) => ClassBuilderStep<Self, T, K & keyof T>;
-};
+export type ClassAutoSetters<T extends object> = ClassSetterMaps<T, T>;
 
 /**
  * The public API shared by every class auto builder instance.
@@ -57,7 +76,12 @@ export type ClassAutoSetters<T extends object> = {
 export interface ClassAutoBuilderApi<T extends object>
 	extends
 		BuilderTargetMarker<T>,
-		CommonAutoBuilderApi<T, DataPropertiesOnly<T> & object, ClassBuildGate<T>, ClassPath<T>> {}
+		CommonAutoBuilderApi<
+			T,
+			DataPropertiesOnly<T> & object,
+			InternalClassBrand<WritableDataProperties<T>>,
+			ClassPath<T>
+		> {}
 
 /**
  * The typed abstract constructor returned by {@link CeriosClassAutoBuilder}.
@@ -126,12 +150,8 @@ export type ClassAutoBuilderConstructor<T extends object> = (abstract new (
 export type ClassAutoBuilderBase<TBase extends object> = abstract new (
 	// oxlint-disable-next-line typescript/no-explicit-any -- the canonical mixin constraint; `any[]` keeps every concrete auto-builder constructor assignable
 	...args: any[]
-) => {
-	[K in WritableKeys<DataPropertiesOnly<TBase>> & string as SetterName<K>]: <Self>(
-		this: Self,
-		value: NonNullable<DataPropertiesOnly<TBase>[K]>,
-	) => ClassBuilderStep<Self, TBase, K & keyof TBase>;
-} & BuilderTargetMarker<TBase> &
+) => ClassSetterMaps<TBase, { [K in keyof TBase]-?: NonNullable<TBase[K]> }> &
+	BuilderTargetMarker<TBase> &
 	Pick<ClassAutoBuilderApi<TBase>, "buildPartial" | "buildUnsafe" | "buildWithoutCompileTimeValidation"> & {
 		/** Creates an independent copy of the builder with deep-cloned state. */
 		clone<Self>(this: Self): Self;
@@ -200,9 +220,11 @@ export function CeriosClassAutoBuilder<T extends object>(
 			validators?: Array<(obj: Partial<T>) => boolean | string>,
 			requiredFields?: ReadonlyArray<ClassPath<T>> | Set<string>,
 		) {
-			// The base builder's copy-on-write re-creates instances as
-			// `new this.constructor(classConstructor, data, validators, requiredFields)`,
-			// so a function first argument is that internal path; anything else is user data.
+			// A function first argument is the deprecated CeriosClassBuilder's positional
+			// contract `(classConstructor, data, validators, requiredFields)`. Nothing in the
+			// library takes that path any more, because `instantiateBuilder` and `from` are
+			// overridden. It stays only so untyped callers cannot land the class constructor in
+			// the data slot, and goes away together with CeriosClassBuilder in the next major.
 			if (typeof dataOrConstructor === "function") {
 				super(dataOrConstructor, initOrData as Partial<T>, validators, requiredFields);
 			} else {

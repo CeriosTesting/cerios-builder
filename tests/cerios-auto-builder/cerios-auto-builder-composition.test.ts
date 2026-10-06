@@ -43,6 +43,12 @@ class CustomerBuilder extends CeriosAutoBuilder<Customer>() {
 		return this.tier("vip");
 	}
 
+	// The three-argument form: keys are looked up on CustomerBuilder (so they autocomplete),
+	// and `this` keeps everything set earlier in the chain.
+	asGold(): BuilderWith<this, "tier", CustomerBuilder> {
+		return this.tier("gold");
+	}
+
 	withNote(note: string): BuilderWith<this, "meta"> {
 		return this.meta({ note, source: "manual" });
 	}
@@ -79,6 +85,33 @@ describe("CeriosAutoBuilder - nested builder composition", () => {
 		expect(customer.address).toEqual({ street: "Main St", city: "Rotterdam", country: "NL" });
 		expect(customer.tier).toBe("vip");
 		expect(customer.meta.note).toBe("hello");
+	});
+
+	it("keeps the chain buildable through BuilderWith<this, Keys, Builder>", () => {
+		const customer = CustomerBuilder.create()
+			.id("1")
+			.withNote("n")
+			.asGold()
+			.withAddress((b) => b.street("Main St").city("Rotterdam").country("NL"))
+			.build();
+		expect(customer.tier).toBe("gold");
+
+		// The same type as the two-argument `this` form at the call site.
+		const viaHint = CustomerBuilder.create().id("1").asGold();
+		const viaThis = CustomerBuilder.create().id("1").asVip();
+		expectTypeOf(viaHint).toEqualTypeOf(viaThis);
+
+		// @ts-expect-error - tier is set, but meta and address are not
+		CustomerBuilder.create().id("1").asGold().build();
+	});
+
+	it("rejects a builder class the returned builder does not extend, and keys it does not have", () => {
+		// @ts-expect-error - ContactBuilder does not extend AddressBuilder
+		type Mismatch = BuilderWith<ContactBuilder, "city", AddressBuilder>;
+		// @ts-expect-error - email is not a property of Address
+		type WrongKey = BuilderWith<AddressBuilder, "email", AddressBuilder>;
+
+		expectTypeOf<Mismatch | WrongKey>().not.toBeNever();
 	});
 
 	it("treats keys preset by the factory as already set", () => {

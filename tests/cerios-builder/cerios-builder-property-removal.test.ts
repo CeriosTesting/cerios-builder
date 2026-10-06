@@ -147,6 +147,39 @@ describe("CeriosBuilder - Property Removal", () => {
 		});
 	});
 
+	describe("removeRequiredProperty()", () => {
+		it("should remove a required property, leaving the original intact", () => {
+			const original = new PersonBuilder().setName("John").setAge(30).setEmail("john@example.com");
+			const without = original.removeRequiredProperty("name");
+
+			expect(without.buildPartial()).toEqual({ age: 30, email: "john@example.com" });
+			expect(original.build().name).toBe("John");
+		});
+
+		it("should block the compile-time-validated build variants", () => {
+			const without = new PersonBuilder().setName("John").setAge(30).removeRequiredProperty("age");
+
+			// @ts-expect-error - age was removed
+			expect(() => without.build()).toThrow("Missing required fields: age");
+			// @ts-expect-error - age was removed
+			expect(() => without.buildFrozen()).toThrow("Missing required fields: age");
+			// @ts-expect-error - age was removed
+			expect(without.buildWithoutRuntimeValidation()).toEqual({ name: "John" });
+
+			expect(without.buildUnsafe()).toEqual({ name: "John" });
+			expect(() => without.buildWithoutCompileTimeValidation()).toThrow("Missing required fields: age");
+		});
+
+		it("should only accept required keys", () => {
+			const builder = new PersonBuilder().setName("John").setAge(30).setEmail("john@example.com");
+
+			// @ts-expect-error - email is optional; use removeOptionalProperty
+			builder.removeRequiredProperty("email");
+
+			expect(builder.removeRequiredProperty("name").buildPartial().name).toBeUndefined();
+		});
+	});
+
 	describe("clearOptionalProperties()", () => {
 		it("should remove all optional properties", () => {
 			const builder = new PersonBuilder()

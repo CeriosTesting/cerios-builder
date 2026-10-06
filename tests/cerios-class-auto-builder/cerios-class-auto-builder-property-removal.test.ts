@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
+import { BuildableThis } from "../../src/auto-builder-core";
 import { CeriosClassAutoBuilder } from "../../src/cerios-class-auto-builder";
+import { InternalClassBrand, WritableDataProperties } from "../../src/cerios-class-builder";
+import { MissingRequiredProperties } from "../../src/types";
 
 class Person {
 	name!: string;
@@ -54,6 +57,55 @@ describe("CeriosClassAutoBuilder - removeOptionalProperty", () => {
 			.removeOptionalProperty("email");
 
 		expect(() => builder.buildWithoutCompileTimeValidation()).toThrow("Missing required fields: age");
+	});
+});
+
+describe("CeriosClassAutoBuilder - removeRequiredProperty", () => {
+	// The `this` type the validated build variants demand from a given builder.
+	type BuildThis<B> = BuildableThis<B, InternalClassBrand<WritableDataProperties<Person>>>;
+
+	// Builders are immutable, so every test can fork from the same complete builder.
+	const complete = PersonBuilder.create().name("John").age(30).email("j@x.io");
+
+	it("drops a previously set required data property", () => {
+		const builder = complete.removeRequiredProperty("age");
+
+		expect(builder.buildPartial()).toEqual({ name: "John", email: "j@x.io" });
+		expect(builder.buildUnsafe()).toBeInstanceOf(Person);
+		expect(complete.build().age).toBe(30);
+	});
+
+	it("blocks every compile-time-validated build variant and names the removed property", () => {
+		const without = complete.removeRequiredProperty("age");
+
+		expectTypeOf<BuildThis<typeof without>>().toEqualTypeOf<MissingRequiredProperties<"age">>();
+		expect(() => {
+			// @ts-expect-error - age was removed
+			without.build();
+			// @ts-expect-error - age was removed
+			without.buildWithoutRuntimeValidation();
+			// @ts-expect-error - age was removed
+			without.buildFrozen();
+			// @ts-expect-error - age was removed
+			without.buildDeepFrozen();
+			// @ts-expect-error - age was removed
+			without.buildSealed();
+			// @ts-expect-error - age was removed
+			without.buildDeepSealed();
+		}).not.toThrow(); // no runtime required fields are configured on this builder
+	});
+
+	it("only accepts required keys", () => {
+		// @ts-expect-error - email is optional; use removeOptionalProperty
+		complete.removeRequiredProperty("email");
+
+		expect(complete.removeRequiredProperty("name").buildPartial().name).toBeUndefined();
+	});
+
+	it("preserves runtime required fields across the removal", () => {
+		const builder = complete.setRequiredFields(["name", "age"]).removeRequiredProperty("name");
+
+		expect(() => builder.buildWithoutCompileTimeValidation()).toThrow("Missing required fields: name");
 	});
 });
 
