@@ -148,3 +148,56 @@ describe("validator result handling", () => {
 		).toThrow("Validation failed: custom message");
 	});
 });
+
+describe("plain-language hints in error messages", () => {
+	it("suggests buildUnsafe/buildPartial for missing fields, keeping the original text first", () => {
+		const error = captureError(() => UserBuilder.create().buildWithoutCompileTimeValidation()) as CeriosBuilderError;
+
+		expect(error.message).toBe(
+			"Missing required fields: id, name. Please set these fields before calling buildWithoutCompileTimeValidation. " +
+				"If an incomplete object is intended (e.g. a negative test), use buildUnsafe() or buildPartial().",
+		);
+		// The structured data carries no hint text.
+		expect(error.missingFields).toEqual(["id", "name"]);
+		expect(error.validationErrors).toEqual([]);
+	});
+
+	it("gives the same hint from the class auto builder", () => {
+		const error = captureError(() =>
+			PersonBuilder.create().id("1").buildWithoutCompileTimeValidation(),
+		) as CeriosBuilderError;
+
+		expect(error.message).toContain("Missing required fields: name. Please set these fields before calling");
+		expect(error.message).toContain("use buildUnsafe() or buildPartial()");
+	});
+
+	it("suggests returning a message when a validator returns false, but only in the message", () => {
+		const error = captureError(() =>
+			UserBuilder.create()
+				.id("1")
+				.name("n")
+				.addValidator(function isAdult() {
+					return false;
+				})
+				.buildWithoutCompileTimeValidation(),
+		) as CeriosBuilderError;
+
+		expect(error.message).toBe(
+			"Validation failed: Validator #0 (isAdult) returned false. " +
+				"Tip: return an error message string instead of false to explain what is wrong.",
+		);
+		expect(error.validationErrors).toEqual(["Validator #0 (isAdult) returned false"]);
+	});
+
+	it("adds no tip when every failing validator already explains itself", () => {
+		const error = captureError(() =>
+			UserBuilder.create()
+				.id("1")
+				.name("n")
+				.addValidator(() => "Age must be 18 or older")
+				.buildWithoutCompileTimeValidation(),
+		) as CeriosBuilderError;
+
+		expect(error.message).toBe("Validation failed: Age must be 18 or older");
+	});
+});

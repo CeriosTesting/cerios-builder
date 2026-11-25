@@ -577,6 +577,42 @@ type UnbrandedKeyMap<Self, RequiredBrand> = {
 };
 
 /**
+ * Shown when `build()` (or another checked build method) is called on `this` inside one of
+ * your builder's own methods, and the properties listed first may not have been set yet.
+ *
+ * ```text
+ * The 'this' context of type 'this' is not assignable to method's 'this' of type
+ * 'RequiredPropertiesNotSet<"id" | "name" | "role", this, ...>'.
+ * ```
+ *
+ * Inside a method, TypeScript cannot know which properties the *caller* already set before
+ * calling the method, so it only counts the ones the method sets itself. To fix it, do one of:
+ * - set every listed property in the method before calling `build()`
+ * - return the builder and let the caller call `build()`
+ * - give the method a concrete `this` type: `buildDefault(this: UserBuilder) { ... }`
+ *
+ * At a normal call site (`UserBuilder.create().id("1").build()`) you get
+ * {@link MissingRequiredProperties} instead, which lists exactly the properties still missing.
+ *
+ * @template Keys - The required properties of the type being built
+ * @template Self - The builder `build()` was called on
+ * @template RequiredBrand - Internal: what a fully set builder looks like
+ */
+// Implementation note: this is the gate itself, not just a label. Wrapping the check in a named
+// alias makes TypeScript print it as `RequiredPropertiesNotSet<"id" | "name", ...>` while it
+// stays unresolved for a polymorphic `this`, instead of printing the raw conditional, which the
+// editor truncates to `RemovedKeysOf<this> | ... | ...`. `Keys` exists only for that display.
+// For a concrete receiver the conditional resolves as before: to `Self` when every required
+// property is set, otherwise to `MissingRequiredProperties<...>` naming the missing ones.
+export type RequiredPropertiesNotSet<Keys extends PropertyKey, Self, RequiredBrand> = [Self] extends [
+	RequiredBrand & NoRemovedRequiredProperties,
+]
+	? Self
+	: MissingRequiredProperties<
+			UnbrandedKeyMap<Self, RequiredBrand>[Keys & DemandedKeys<BrandPayload<RequiredBrand>>] | RemovedKeysOf<Self>
+		>;
+
+/**
  * The `this` type of the compile-time-validated build variants.
  *
  * `Self` is inferred from the receiver, so it sees every brand accumulated along the chain -
@@ -584,13 +620,12 @@ type UnbrandedKeyMap<Self, RequiredBrand> = {
  * - When the type has no required properties there is nothing to check: `unknown`, so
  *   `build()` is callable on a fresh builder. This branch never mentions `Self`, so it also
  *   resolves on an unresolved polymorphic `this`.
- * - When the accumulated brand covers the required properties (the same whole-brand
- *   assignability check the deprecated builders use) and nothing was removed: `Self`, which
- *   the receiver trivially satisfies. For a receiver that is still generic, TypeScript
- *   decides this from the brands alone, so builder methods and generic helpers keep compiling.
- * - Otherwise: {@link MissingRequiredProperties}, which no builder is assignable to. The
- *   compile error then ends with the names of the missing properties instead of a chain of
- *   brand types.
+ * - Otherwise {@link RequiredPropertiesNotSet} decides: `Self` once every required property is
+ *   set and none was removed, else `MissingRequiredProperties<...>` naming what is missing.
+ *
+ * The key union is computed inline rather than through `DemandedKeys`: a union produced by a
+ * type alias keeps the alias name, so the error would read `DemandedKeys<User>` instead of
+ * `"id" | "name" | "role"`.
  *
  * @template Self - The receiver type (inferred)
  * @template RequiredBrand - The brand a fully set builder carries
@@ -598,11 +633,14 @@ type UnbrandedKeyMap<Self, RequiredBrand> = {
  */
 export type BuildableThis<Self, RequiredBrand> = [RequiredKeys<BrandPayload<RequiredBrand>>] extends [never]
 	? unknown
-	: [Self] extends [RequiredBrand & NoRemovedRequiredProperties]
-		? Self
-		: MissingRequiredProperties<
-				UnbrandedKeyMap<Self, RequiredBrand>[DemandedKeys<BrandPayload<RequiredBrand>>] | RemovedKeysOf<Self>
-			>;
+	: RequiredPropertiesNotSet<
+			{
+				// oxlint-disable-next-line typescript/no-empty-object-type -- `{}` is the probe for an optional key, not a value type
+				[K in keyof BrandPayload<RequiredBrand>]-?: {} extends Pick<BrandPayload<RequiredBrand>, K> ? never : K;
+			}[keyof BrandPayload<RequiredBrand>],
+			Self,
+			RequiredBrand
+		>;
 
 /**
  * The members both auto builders declare identically once their two axes of variation are
@@ -621,55 +659,68 @@ export type BuildableThis<Self, RequiredBrand> = [RequiredKeys<BrandPayload<Requ
  */
 export interface CommonAutoBuilderApi<T extends object, Data extends object, RequiredBrand, PathType> {
 	/**
-	 * Builds with compile-time and runtime validation.
-	 * Only callable once every required property has been set; until then the compile error
-	 * names the missing properties (`MissingRequiredProperties<"name" | "role">`).
-	 * @throws {Error} If a required field is missing or a validator fails
+	 * Builds the object. This is the one to use by default.
+	 *
+	 * - While writing code: shows an error until every required property is set. The error
+	 *   lists what is missing, e.g. `MissingRequiredProperties<"name" | "role">`.
+	 * - When it runs: checks the required fields and validators you configured.
+	 *
+	 * Want an incomplete object on purpose (e.g. a negative test)? Use `buildUnsafe()` or
+	 * `buildPartial()`.
+	 *
+	 * @throws {CeriosBuilderError} If a required field is missing or a validator fails
 	 */
 	build<Self>(this: BuildableThis<Self, RequiredBrand>): T;
 
 	/**
-	 * Builds with compile-time validation only, skipping runtime checks.
+	 * Builds the object with the editor check only: the configured required fields and
+	 * validators are not run.
 	 */
 	buildWithoutRuntimeValidation<Self>(this: BuildableThis<Self, RequiredBrand>): T;
 
 	/**
-	 * Builds with runtime validation only, skipping compile-time checks.
-	 * @throws {Error} If a required field is missing or a validator fails
+	 * Builds the object with the run-time checks only: callable even when not every required
+	 * property is set, but throws if a configured required field is missing or a validator fails.
+	 *
+	 * @throws {CeriosBuilderError} If a required field is missing or a validator fails
 	 */
 	buildWithoutCompileTimeValidation(): T;
 
 	/**
-	 * Builds without any validation.
+	 * Builds the object without any checks - it may be incomplete.
+	 * Typical use: deliberately invalid data for a negative test.
 	 */
 	buildUnsafe(): T;
 
 	/**
-	 * Returns the current (possibly incomplete) state. No validation.
+	 * Returns what has been set so far, as a partial object. No checks.
 	 */
 	buildPartial(): Partial<T>;
 
 	/**
-	 * Builds, validates, and shallowly freezes the result.
-	 * @throws {Error} If a required field is missing or a validator fails
+	 * Like `build()`, and the result is frozen: its top-level properties cannot be changed.
+	 * @throws {CeriosBuilderError} If a required field is missing or a validator fails
 	 */
 	buildFrozen<Self>(this: BuildableThis<Self, RequiredBrand>): Readonly<T>;
 
 	/**
-	 * Builds, validates, and recursively freezes the result.
-	 * @throws {Error} If a required field is missing or a validator fails
+	 * Like `build()`, and the result is frozen all the way down, including nested objects and
+	 * arrays.
+	 * @throws {CeriosBuilderError} If a required field is missing or a validator fails
 	 */
 	buildDeepFrozen<Self>(this: BuildableThis<Self, RequiredBrand>): DeepReadonly<T>;
 
 	/**
-	 * Builds, validates, and shallowly seals the result.
-	 * @throws {Error} If a required field is missing or a validator fails
+	 * Like `build()`, and the result is sealed: properties can be changed, but not added or
+	 * removed.
+	 * @throws {CeriosBuilderError} If a required field is missing or a validator fails
 	 */
 	buildSealed<Self>(this: BuildableThis<Self, RequiredBrand>): T;
 
 	/**
-	 * Builds, validates, and recursively seals the result.
-	 * @throws {Error} If a required field is missing or a validator fails
+	 * Like `build()`, and the result is sealed all the way down, including nested objects and
+	 * arrays.
+	 * @throws {CeriosBuilderError} If a required field is missing or a validator fails
 	 */
 	buildDeepSealed<Self>(this: BuildableThis<Self, RequiredBrand>): T;
 

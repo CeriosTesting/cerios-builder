@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import { BuildableThis } from "../../src/auto-builder-core";
+import { BuildableThis, RequiredPropertiesNotSet } from "../../src/auto-builder-core";
 import { AutoSetters, CeriosAutoBuilder } from "../../src/cerios-auto-builder";
 import { BuilderStep, BuilderWith, InternalBuilderBrand } from "../../src/cerios-builder";
 import { MissingRequiredProperties } from "../../src/types";
@@ -158,6 +158,9 @@ describe("CeriosAutoBuilder - compile-time safety", () => {
 });
 
 describe("CeriosAutoBuilder - build() compile error", () => {
+	// True only when A and B are the very same type, even while still generic.
+	type IsIdentical<A, B> = (<V>() => V extends A ? 1 : 2) extends <V>() => V extends B ? 1 : 2 ? true : false;
+
 	// The `this` type the validated build variants demand from a given builder. When it is
 	// MissingRequiredProperties<...>, the compile error reads
 	// "... is not assignable to method's 'this' of type 'MissingRequiredProperties<"name" | "role">'".
@@ -172,6 +175,24 @@ describe("CeriosAutoBuilder - build() compile error", () => {
 		expectTypeOf<BuildThis<typeof idOnly>>().toEqualTypeOf<MissingRequiredProperties<"name" | "role">>();
 		expectTypeOf<BuildThis<typeof complete>>().toEqualTypeOf<typeof complete>();
 		expect(complete.build()).toEqual({ id: "1", name: "n", role: "r" });
+	});
+
+	it("names the required properties for `this` inside a builder's own method", () => {
+		// For a still-generic receiver (`this` in a method) TypeScript cannot tell which
+		// properties the caller set, so the check stays unresolved. It must still print the
+		// property names - "RequiredPropertiesNotSet<"id" | "name" | "role", this, ...>" -
+		// rather than a raw conditional the editor truncates to "... | ... | ...".
+		function probe<S extends UserBuilder>(builder: S): S {
+			// expectTypeOf cannot compare unresolved generic types; this identity check can.
+			const same: IsIdentical<
+				BuildThis<S>,
+				RequiredPropertiesNotSet<"id" | "name" | "role", S, InternalBuilderBrand<User>>
+			> = true;
+			expect(same).toBe(true);
+			return builder;
+		}
+
+		expect(probe(UserBuilder.create()).buildPartial()).toEqual({});
 	});
 
 	it("keeps build() working on `this` inside a builder's own method", () => {

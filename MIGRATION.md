@@ -98,14 +98,14 @@ class UserBuilder extends CeriosAutoBuilder<User>() {
 }
 ```
 
-`BuilderWith<this, "role", UserBuilder>` replaces the deprecated `BuilderStep<this, User, "role">` — the built type is derived from the builder, so you never repeat it. Always start with `this`, not the class name, so previously set keys are preserved. The last argument, the builder class, is where the property names are looked up, so they autocomplete inside the quotes; `BuilderWith<this, "role">` is the same type, without autocomplete.
+`BuilderWith<this, "role", UserBuilder>` replaces the deprecated `BuilderStep<this, User, "role">` — the built type is derived from the builder, so you never repeat it. In instance methods always start with `this`, not the class name, so previously set keys are preserved, and end with the builder class, so the keys autocomplete inside the quotes. Static factories start with the class instead (`BuilderWith<UserBuilder, "role">`). See [Return types](README.md#return-types) for the full table.
 
 **A custom method cannot reuse a property's exact name** — the method would shadow the generated setter it needs to call. Give it a distinct name:
 
 ```typescript
 // Before (hand-written): name(value) { return this.setProperty("name", value.trim()); }
 // After:
-trimmedName(value: string): BuilderWith<this, "name"> {
+trimmedName(value: string): BuilderWith<this, "name", UserBuilder> {
 	return this.name(value.trim());
 }
 ```
@@ -200,7 +200,7 @@ The runnable version of this example lives in [tests/cerios-auto-builder/cerios-
 For a one-off small update, a custom method replacing the whole root property also works:
 
 ```typescript
-inCity(city: string): BuilderWith<this, "address"> {
+inCity(city: string): BuilderWith<this, "address", CustomerBuilder> {
 	const address = this.buildPartial().address ?? { street: "", city: "" };
 	return this.address({ ...address, city });
 }
@@ -211,7 +211,7 @@ inCity(city: string): BuilderWith<this, "address"> {
 ```typescript
 // Before: addTag(tag: string) { return this.addToArrayProperty("tags", tag); }
 // After:
-addTag(tag: string): BuilderWith<this, "tags"> {
+addTag(tag: string): BuilderWith<this, "tags", PostBuilder> {
 	return this.tags([...(this.buildPartial().tags ?? []), tag]);
 }
 ```
@@ -292,3 +292,5 @@ These helper types are deprecated. They are still exported and still work, so no
 | `CeriosClassBrand<T>`                                      | `ClassBuilderWith` / `ClassBuilderComposerFromFactory`                        |
 
 Hovers and the too-early `build()` error now name the type a generated setter returns as `InternalBuilderStep<UserBuilder, User, "id">` (`InternalClassBuilderStep` for class builders) instead of `BuilderStep<...>`. It is the same type under a name that is not deprecated. You never need to write it yourself.
+
+As of the next release that type reads `BuilderWithProperty<UserBuilder, User, "id">` (`ClassBuilderWithProperty` for class builders): "a `UserBuilder` with `id` set". `InternalBuilderStep` / `InternalClassBuilderStep` remain exported as deprecated aliases of the same type, so existing declaration files keep compiling.

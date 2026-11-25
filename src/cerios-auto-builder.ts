@@ -10,7 +10,7 @@ import {
 	createBuilderCopy,
 	toRequiredPaths,
 } from "./auto-builder-core";
-import { CeriosBuilder, InternalBuilderBrand, InternalBuilderStep, Path } from "./cerios-builder";
+import { BuilderWithProperty, CeriosBuilder, InternalBuilderBrand, Path } from "./cerios-builder";
 import { BuilderTargetMarker } from "./types";
 
 /**
@@ -34,12 +34,12 @@ type SetterMaps<T extends object, V> = {
 	-readonly [K in keyof NonDistributive<T> as DirectSetterKey<K>]-?: <Self>(
 		this: Self,
 		value: V[K & keyof V],
-	) => InternalBuilderStep<Self, T, K & keyof T>;
+	) => BuilderWithProperty<Self, T, K & keyof T>;
 } & {
 	-readonly [K in keyof NonDistributive<T> as ReservedSetterName<K>]-?: <Self>(
 		this: Self,
 		value: V[K & keyof V],
-	) => InternalBuilderStep<Self, T, K & keyof T>;
+	) => BuilderWithProperty<Self, T, K & keyof T>;
 };
 
 /**
@@ -50,7 +50,7 @@ type SetterMaps<T extends object, V> = {
  * identifiers (e.g. `"content-type"`) are set with bracket access
  * (`builder["content-type"](value)`).
  *
- * Each setter returns a {@link InternalBuilderStep} so the phantom-brand compile-time
+ * Each setter returns a {@link BuilderWithProperty} so the phantom-brand compile-time
  * tracking accumulates exactly like a hand-written setter. Ctrl+Click on a setter
  * opens the property it sets.
  *
@@ -220,7 +220,7 @@ class AutoBuilderRuntime<T extends object> extends CeriosBuilder<T> {
  *
  * class UserBuilder extends CeriosAutoBuilder<User>() {
  *   static create(): UserBuilder { return new UserBuilder({}); }
- *   asAdmin() { return this.role("admin"); } // inferred InternalBuilderStep<this, User, "role">
+ *   asAdmin() { return this.role("admin"); } // inferred BuilderWithProperty<this, User, "role">
  * }
  *
  * const user = UserBuilder.create().id("1").name("Alice").asAdmin().build();

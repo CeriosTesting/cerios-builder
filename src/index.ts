@@ -7,13 +7,14 @@ export type {
 	BuilderPreset,
 	BuilderStep,
 	BuilderWith,
+	BuilderWithProperty,
 	CeriosBrand,
 	InternalBuilderBrand,
 	InternalBuilderStep,
 	Path,
 	RequiredFieldsTemplate,
 } from "./cerios-builder.js";
-export type { BuilderExtension, BuilderInit } from "./auto-builder-core.js";
+export type { BuilderExtension, BuilderInit, RequiredPropertiesNotSet } from "./auto-builder-core.js";
 export { CeriosBuilderError } from "./builder-error.js";
 export { CeriosAutoBuilder } from "./cerios-auto-builder.js";
 export type { AutoBuilderApi, AutoBuilderBase, AutoBuilderConstructor, AutoSetters } from "./cerios-auto-builder.js";
@@ -33,6 +34,7 @@ export type {
 	ClassBuilderPreset,
 	ClassBuilderStep,
 	ClassBuilderWith,
+	ClassBuilderWithProperty,
 	ClassConstructor,
 	ClassPath,
 	DataPropertiesOnly,

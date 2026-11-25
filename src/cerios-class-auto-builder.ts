@@ -17,7 +17,7 @@ import {
 	ClassPath,
 	DataPropertiesOnly,
 	InternalClassBrand,
-	InternalClassBuilderStep,
+	ClassBuilderWithProperty,
 	WritableDataProperties,
 } from "./cerios-class-builder";
 import { BuilderTargetMarker, WritableKeys } from "./types";
@@ -36,11 +36,11 @@ import { BuilderTargetMarker, WritableKeys } from "./types";
 type ClassSetterMaps<T extends object, V> = {
 	-readonly [K in keyof NonDistributive<T> as K extends WritableKeys<DataPropertiesOnly<T>>
 		? DirectSetterKey<K>
-		: never]-?: <Self>(this: Self, value: V[K & keyof V]) => InternalClassBuilderStep<Self, T, K & keyof T>;
+		: never]-?: <Self>(this: Self, value: V[K & keyof V]) => ClassBuilderWithProperty<Self, T, K & keyof T>;
 } & {
 	-readonly [K in keyof NonDistributive<T> as K extends WritableKeys<DataPropertiesOnly<T>>
 		? ReservedSetterName<K>
-		: never]-?: <Self>(this: Self, value: V[K & keyof V]) => InternalClassBuilderStep<Self, T, K & keyof T>;
+		: never]-?: <Self>(this: Self, value: V[K & keyof V]) => ClassBuilderWithProperty<Self, T, K & keyof T>;
 };
 
 /**
@@ -56,7 +56,7 @@ type ClassSetterMaps<T extends object, V> = {
  *
  * Property names that collide with a builder method (e.g. `build`) get a `Prop`
  * suffix; keys that aren't valid identifiers are set with bracket access.
- * Each setter returns a {@link InternalClassBuilderStep} so brand tracking accumulates.
+ * Each setter returns a {@link ClassBuilderWithProperty} so brand tracking accumulates.
  * Ctrl+Click on a setter opens the class field it sets.
  *
  * @template T - The class type being built

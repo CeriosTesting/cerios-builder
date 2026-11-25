@@ -43,6 +43,54 @@ function describeValidator(validator: unknown, index: number): string {
 }
 
 /**
+ * The result of running the validators.
+ * @internal
+ */
+export interface ValidatorFailures {
+	/** One message per failing validator, in validator order. */
+	readonly messages: string[];
+	/** Whether any validator failed by returning `false`, i.e. without an explanation. */
+	readonly anyReturnedFalse: boolean;
+}
+
+/**
+ * Throws the error for required fields that are not set, or for failing validators.
+ *
+ * Shared by both base builders, which previously each built these messages themselves.
+ *
+ * The message text starts exactly as it always did, so callers matching on it keep working;
+ * only a plain-language hint is appended. `missingFields` and `validationErrors` are unchanged.
+ *
+ * @param methodName - The build variant being run, named in the message
+ * @param missing - Required field paths that are not set
+ * @param validation - The validator results; only consulted when nothing is missing
+ * @throws {CeriosBuilderError} If anything is missing or any validator failed
+ * @internal
+ */
+export function throwIfInvalid(
+	methodName: string,
+	missing: ReadonlyArray<string>,
+	validation: () => ValidatorFailures,
+): void {
+	if (missing.length > 0) {
+		throw new CeriosBuilderError(
+			`Missing required fields: ${missing.join(", ")}. Please set these fields before calling ${methodName}. ` +
+				"If an incomplete object is intended (e.g. a negative test), use buildUnsafe() or buildPartial().",
+			missing,
+			[],
+		);
+	}
+
+	const { messages, anyReturnedFalse } = validation();
+	if (messages.length > 0) {
+		const tip = anyReturnedFalse
+			? ". Tip: return an error message string instead of false to explain what is wrong."
+			: "";
+		throw new CeriosBuilderError(`Validation failed: ${messages.join("; ")}${tip}`, [], messages);
+	}
+}
+
+/**
  * Runs every validator and collects the failures.
  *
  * Shared by both base builders, which previously held byte-identical private copies.
@@ -58,14 +106,15 @@ function describeValidator(validator: unknown, index: number): string {
  *
  * @param validators - The validators to run
  * @param actual - The current builder state to validate
- * @returns One message per failure, in validator order
+ * @returns One message per failure, in validator order, and whether any returned `false`
  * @internal
  */
 export function runValidatorsAgainst<T>(
 	validators: ReadonlyArray<(obj: Partial<T>) => boolean | string>,
 	actual: Partial<T>,
-): string[] {
+): ValidatorFailures {
 	const errors: string[] = [];
+	let anyReturnedFalse = false;
 
 	for (const [index, validator] of validators.entries()) {
 		const result = validator(actual);
@@ -74,6 +123,7 @@ export function runValidatorsAgainst<T>(
 			continue;
 		}
 		if (result === false) {
+			anyReturnedFalse = true;
 			errors.push(`${describeValidator(validator, index)} returned false`);
 			continue;
 		}
@@ -87,5 +137,5 @@ export function runValidatorsAgainst<T>(
 		);
 	}
 
-	return errors;
+	return { messages: errors, anyReturnedFalse };
 }

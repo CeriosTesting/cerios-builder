@@ -113,9 +113,25 @@ describe("public export surface", () => {
 	it("exports the type every generated setter returns", () => {
 		// It is what hovers and the too-early build() error name, so consumers' declaration
 		// emit must be able to reference it.
-		expectTypeOf(new UserBuilder().name("Alice")).toEqualTypeOf<InternalBuilderStep<UserBuilder, User, "name">>();
+		expectTypeOf(new UserBuilder().name("Alice")).toEqualTypeOf<api.BuilderWithProperty<UserBuilder, User, "name">>();
 		expectTypeOf(new PersonBuilder().name("Alice")).toEqualTypeOf<
-			InternalClassBuilderStep<PersonBuilder, Person, "name">
+			api.ClassBuilderWithProperty<PersonBuilder, Person, "name">
+		>();
+	});
+
+	it("keeps the former setter return type names exported and equal to the new ones", () => {
+		// Consumers declaration files emitted before the rename reference these names.
+		expectTypeOf<InternalBuilderStep<UserBuilder, User, "name">>().toEqualTypeOf<
+			api.BuilderWithProperty<UserBuilder, User, "name">
+		>();
+		expectTypeOf<InternalClassBuilderStep<PersonBuilder, Person, "name">>().toEqualTypeOf<
+			api.ClassBuilderWithProperty<PersonBuilder, Person, "name">
+		>();
+	});
+
+	it("exports the type the in-method build error names", () => {
+		expectTypeOf<api.RequiredPropertiesNotSet<"name", UserBuilder, InternalBuilderBrand<User>>>().toEqualTypeOf<
+			api.MissingRequiredProperties<"name">
 		>();
 	});
 

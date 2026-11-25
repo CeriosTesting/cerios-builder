@@ -94,27 +94,28 @@ export interface NoRemovedRequiredProperties {
 export type RemovedKeysOf<B> = [B] extends [{ readonly [__removed]?: infer R }] ? keyof (R & {}) : never;
 
 /**
- * The `this` type a validated build variant (`build()`, `buildFrozen()`, ...) demands while
- * required properties are still missing. It surfaces in the compile error:
+ * Shown when you call `build()` (or `buildFrozen()`, `buildSealed()`, ...) before every
+ * required property is set. The listed properties are the ones still missing:
  *
  * ```text
- * The 'this' context of type 'UserBuilder & ...' is not assignable to method's 'this' of
- * type 'MissingRequiredProperties<"name" | "role">'.
+ * The 'this' context of type 'BuilderWithProperty<UserBuilder, User, "id">' is not assignable
+ * to method's 'this' of type 'MissingRequiredProperties<"name" | "role">'.
  * ```
  *
- * To fix it, set the listed properties before building. If a property is listed because
- * `removeRequiredProperty` removed it, build from an earlier builder instead (builders are
- * immutable, so the one before the removal is unaffected), or use `buildUnsafe()` /
- * `buildPartial()` when the incomplete object is intended - for example in a negative test.
+ * How to fix it:
+ * - Set the listed properties before building: `.name("Alice").role("admin").build()`.
+ * - A property listed because `removeRequiredProperty` removed it: build from the builder you
+ *   had before the removal (builders never change, so that one is unaffected).
+ * - The incomplete object is what you want (for example in a negative test): use
+ *   `buildUnsafe()` or `buildPartial()`, which skip this check.
  *
- * Deliberately a union of two branded copies of the keys rather than an object type: no
- * builder can ever be assignable to it, and TypeScript then reports the error in a single
- * line. An object type adds a "Property ... is missing" line that repeats the whole builder
- * type, and a single branded key adds a "... is not assignable to type '"name"'" line; a union
- * target is not elaborated, so the second brand keeps it a union even for one key.
- *
- * @template K - The required property keys that are not set yet
+ * @template K - The required properties that are not set yet
  */
+// Implementation note: deliberately a union of two branded copies of the keys rather than an
+// object type. No builder can ever be assignable to it, and TypeScript then reports the error
+// in a single line. An object type adds a "Property ... is missing" line that repeats the whole
+// builder type, and a single branded key adds a "... is not assignable to type '"name"'" line;
+// a union target is not elaborated, so the second brand keeps it a union even for one key.
 export type MissingRequiredProperties<K extends PropertyKey> =
 	| (K & { readonly [__missingRequiredProperties]: never })
 	| (K & { readonly [__unbuildable]: never });

@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import { BuildableThis } from "../../src/auto-builder-core";
+import { BuildableThis, RequiredPropertiesNotSet } from "../../src/auto-builder-core";
 import { CeriosClassAutoBuilder, ClassAutoSetters } from "../../src/cerios-class-auto-builder";
 import {
 	ClassBuilderStep,
@@ -257,6 +257,9 @@ describe("CeriosClassAutoBuilder - compile-time safety", () => {
 });
 
 describe("CeriosClassAutoBuilder - build() compile error", () => {
+	// True only when A and B are the very same type, even while still generic.
+	type IsIdentical<A, B> = (<V>() => V extends A ? 1 : 2) extends <V>() => V extends B ? 1 : 2 ? true : false;
+
 	// The `this` type the validated build variants demand from a given builder.
 	type BuildThis<B> = BuildableThis<B, InternalClassBrand<WritableDataProperties<Person>>>;
 
@@ -267,6 +270,20 @@ describe("CeriosClassAutoBuilder - build() compile error", () => {
 		expectTypeOf<BuildThis<typeof nameOnly>>().toEqualTypeOf<MissingRequiredProperties<"age">>();
 		expectTypeOf<BuildThis<typeof complete>>().toEqualTypeOf<typeof complete>();
 		expect(complete.build()).toBeInstanceOf(Person);
+	});
+
+	it("names the required data properties for `this` inside a builder's own method", () => {
+		function probe<S extends PersonBuilder>(builder: S): S {
+			// expectTypeOf cannot compare unresolved generic types; this identity check can.
+			const same: IsIdentical<
+				BuildThis<S>,
+				RequiredPropertiesNotSet<"name" | "age", S, InternalClassBrand<WritableDataProperties<Person>>>
+			> = true;
+			expect(same).toBe(true);
+			return builder;
+		}
+
+		expect(probe(PersonBuilder.create()).buildPartial()).toEqual({});
 	});
 
 	it("keeps build() working on `this` inside a builder's own method", () => {
